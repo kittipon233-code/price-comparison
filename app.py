@@ -211,7 +211,7 @@ with tab2:
             from openpyxl.styles import (Font, PatternFill, Alignment,
                                           Border, Side, GradientFill)
             from openpyxl.utils import get_column_letter
-            from openpyxl.styles.numbers import FORMAT_NUMBER_COMMA_SEP1
+          
 
             wb = Workbook()
             ws = wb.active
