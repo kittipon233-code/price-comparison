@@ -156,7 +156,8 @@ with tab1:
         st.info("ยังไม่มีรายการ — อัปโหลดไฟล์ทางซ้าย หรือกด 'เพิ่มรายการสินค้า'")
     else:
         to_delete = None
-        for idx, item in enumerate(st.session_state.items):
+        items_copy = list(st.session_state.items)
+        for idx, item in enumerate(items_copy):
             with st.expander(f"{idx+1}. {item['name']}", expanded=True):
                 c1, c2, c3, c4 = st.columns([3, 1, 1, 0.6])
                 item["name"] = c1.text_input("ชื่อสินค้า", item["name"], key=f"n_{idx}")
