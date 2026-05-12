@@ -513,7 +513,7 @@ elif st.session_state["mode"] in ["new","edit"]:
                     col_up=SHOP_START+si*2; col_tot=col_up+1
                     hc,lc=shop_colors[si%5]
                     ws.merge_cells(start_row=row,start_column=col_up,end_row=row,end_column=col_tot)
-                    lbl = ("🏆 " if si==best_idx else "") + shop
+                    lbl = ("* " if si==best_idx else "") + shop
                     cs(row,col_up,lbl,bold=True,color=WHITE,bg=hc,align="center",border=bdr_med,size=10)
                 if len(items_data) > 0:
                     ws.merge_cells(start_row=row,start_column=1,end_row=row,end_column=4)
@@ -593,7 +593,7 @@ elif st.session_state["mode"] in ["new","edit"]:
                 # หมายเหตุ section
                 note_section = '<tr><th colspan="4" style="text-align:left">รายการ</th>'
                 for si,s in enumerate(shops):
-                    lbl = ("🏆 " if si==best_idx2 else "") + s
+                    lbl = ("* " if si==best_idx2 else "") + s
                     note_section += f'<th colspan="2">{lbl}</th>'
                 note_section += "</tr>"
 
@@ -641,7 +641,7 @@ elif st.session_state["mode"] in ["new","edit"]:
   <thead>{note_section}</thead>
 </table>
 <br>
-<button onclick="window.print()" style="padding:8px 20px;background:#1D9E75;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px">🖨️ พิมพ์ / บันทึก PDF</button>
+<button onclick="window.print()" style="padding:8px 20px;background:#1D9E75;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px">พิมพ์ / บันทึก PDF</button>
 </body></html>"""
                 return html.encode("utf-8")
 
