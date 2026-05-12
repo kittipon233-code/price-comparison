@@ -7,14 +7,15 @@ import io
 import json
 
 st.set_page_config(page_title="เปรียบเทียบราคา", page_icon="🛒", layout="wide")
-
 st.markdown("""
 <style>
 .main-title{font-size:26px;font-weight:700;color:#1D9E75}
 .subtitle{color:#6b7280;font-size:14px;margin-bottom:1rem}
+.group-header{font-size:16px;font-weight:600;color:#1D9E75;padding:8px 0;border-bottom:2px solid #1D9E75;margin-bottom:12px}
 </style>
 """, unsafe_allow_html=True)
 
+# ===== Google Sheets =====
 @st.cache_resource
 def get_sheet():
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -26,7 +27,7 @@ def get_sheet():
     if "projects" not in existing:
         ws = sh.add_worksheet("projects", 1000, 20)
         ws.append_row(["id","title","project_name","date","vat_rate",
-                       "shops","shop_discounts","items","created_by","created_at"])
+                       "shops","shop_discounts","groups","created_by","created_at"])
     return sh
 
 def get_ws(name):
@@ -44,7 +45,7 @@ def save_project(data, created_by, project_id=None):
         data["title"], data["project_name"], data["date"], data["vat_rate"],
         json.dumps(data["shops"],          ensure_ascii=False),
         json.dumps(data["shop_discounts"], ensure_ascii=False),
-        json.dumps(data["items"],          ensure_ascii=False),
+        json.dumps(data["groups"],         ensure_ascii=False),
         created_by, now
     ]
     if project_id:
@@ -72,24 +73,47 @@ def parse_project(r):
     except: shops = ["บริษัท A","บริษัท B","บริษัท C"]
     try:    shop_discounts = json.loads(r.get("shop_discounts","{}"))
     except: shop_discounts = {}
-    try:    items = json.loads(r.get("items","[]"))
-    except: items = []
-    return shops, shop_discounts, items
+    # รองรับทั้ง format เก่า (items) และใหม่ (groups)
+    try:
+        groups = json.loads(r.get("groups","[]"))
+        if not groups:
+            # ลอง migrate จาก items เก่า
+            old_items = json.loads(r.get("items","[]"))
+            if old_items:
+                groups = [{"name":"กลุ่มที่ 1","items":old_items}]
+            else:
+                groups = [{"name":"กลุ่มที่ 1","items":[]}]
+    except:
+        groups = [{"name":"กลุ่มที่ 1","items":[]}]
+    return shops, shop_discounts, groups
 
-def calc_summary(items_data, shops, vat_rate, shop_disc):
-    grand_sub = {s: 0.0 for s in shops}
+def new_group(idx):
+    return {
+        "name": f"กลุ่มที่ {idx}",
+        "items": []
+    }
+
+def new_item(shops):
+    return {
+        "name":"สินค้าใหม่","unit":"set","qty":1.0,
+        "prices":{s:0.0 for s in shops},
+        "notes":{s:"" for s in shops}
+    }
+
+def calc_group(items_data, shops, vat_rate, shop_disc):
+    grand_sub = {s:0.0 for s in shops}
     for it in items_data:
         qty = float(it["qty"])
         for s in shops:
-            grand_sub[s] += float(it["prices"].get(s, 0)) * qty
-    grand_disc       = {s: float(shop_disc.get(s, 0))                for s in shops}
-    grand_after_disc = {s: grand_sub[s] - grand_disc[s]               for s in shops}
-    grand_vat        = {s: max(grand_after_disc[s],0)*vat_rate/100    for s in shops}
-    grand_total      = {s: max(grand_after_disc[s],0)+grand_vat[s]    for s in shops}
+            grand_sub[s] += float(it["prices"].get(s,0)) * qty
+    grand_disc       = {s: float(shop_disc.get(s,0))               for s in shops}
+    grand_after_disc = {s: grand_sub[s] - grand_disc[s]             for s in shops}
+    grand_vat        = {s: max(grand_after_disc[s],0)*vat_rate/100  for s in shops}
+    grand_total      = {s: max(grand_after_disc[s],0)+grand_vat[s]  for s in shops}
     return grand_sub, grand_disc, grand_after_disc, grand_vat, grand_total
 
-# LOGIN
-for k, v in [("logged_in",False),("username",""),("display_name","")]:
+# ===== LOGIN =====
+for k,v in [("logged_in",False),("username",""),("display_name","")]:
     if k not in st.session_state: st.session_state[k] = v
 
 if not st.session_state["logged_in"]:
@@ -103,7 +127,7 @@ if not st.session_state["logged_in"]:
             password  = st.text_input("Password", type="password")
             submitted = st.form_submit_button("เข้าสู่ระบบ", use_container_width=True)
             if submitted:
-                users = st.secrets.get("users", {})
+                users = st.secrets.get("users",{})
                 if username in users and users[username]["password"] == password:
                     st.session_state.update({"logged_in":True,"username":username,
                                              "display_name":users[username]["name"]})
@@ -122,24 +146,24 @@ with st.sidebar:
         st.rerun()
     st.divider()
 
-for k, v in [("mode","list"),("current_project_id",None),
-             ("shops",["บริษัท A","บริษัท B","บริษัท C"]),
-             ("items_list",[]),("doc_title","เปรียบเทียบราคา"),
-             ("project_name",""),("vat_rate",7.0),
-             ("shop_discounts",{}),("doc_date",date.today())]:
+for k,v in [("mode","list"),("current_project_id",None),
+            ("shops",["บริษัท A","บริษัท B","บริษัท C"]),
+            ("groups",[{"name":"กลุ่มที่ 1","items":[]}]),
+            ("doc_title","เปรียบเทียบราคา"),("project_name",""),
+            ("vat_rate",7.0),("shop_discounts",{}),("doc_date",date.today())]:
     if k not in st.session_state: st.session_state[k] = v
 
 def load_into_session(r):
-    shops, shop_discounts, items = parse_project(r)
+    shops, shop_discounts, groups = parse_project(r)
     st.session_state.update({
         "doc_title":r.get("title",""),"project_name":r.get("project_name",""),
         "vat_rate":float(r.get("vat_rate",7.0)),"shops":shops,
-        "shop_discounts":shop_discounts,"items_list":items
+        "shop_discounts":shop_discounts,"groups":groups
     })
     try:    st.session_state["doc_date"] = datetime.strptime(r.get("date",""),"%Y-%m-%d").date()
     except: st.session_state["doc_date"] = date.today()
 
-# LIST
+# ===== LIST =====
 if st.session_state["mode"] == "list":
     c1,c2 = st.columns([3,1])
     c1.markdown("## 📋 รายการเปรียบเทียบราคาทั้งหมด")
@@ -147,8 +171,9 @@ if st.session_state["mode"] == "list":
         st.session_state.update({
             "mode":"new","current_project_id":None,
             "shops":["บริษัท A","บริษัท B","บริษัท C"],
-            "items_list":[],"doc_title":"เปรียบเทียบราคา",
-            "project_name":"","vat_rate":7.0,"shop_discounts":{},"doc_date":date.today()
+            "groups":[{"name":"กลุ่มที่ 1","items":[]}],
+            "doc_title":"เปรียบเทียบราคา","project_name":"",
+            "vat_rate":7.0,"shop_discounts":{},"doc_date":date.today()
         })
         st.rerun()
 
@@ -159,11 +184,12 @@ if st.session_state["mode"] == "list":
         st.info("ยังไม่มีรายการ — กด 'สร้างรายการใหม่' เพื่อเริ่มต้นครับ")
     else:
         for r in reversed(projects):
-            shops, _, items = parse_project(r)
+            shops, _, groups = parse_project(r)
+            total_items = sum(len(g.get("items",[])) for g in groups)
             ca,cb,cc,cd = st.columns([3,1,1,1])
             ca.markdown(f"**{r.get('title','')}**  \n📁 {r.get('project_name','')}  \n🗓 {r.get('date','')} | 👤 {r.get('created_by','')}")
-            cb.markdown(f"**{len(items)}** รายการ")
-            cc.markdown(f"**{len(shops)}** ร้าน")
+            cb.markdown(f"**{total_items}** รายการ")
+            cc.markdown(f"**{len(groups)}** กลุ่ม | **{len(shops)}** ร้าน")
             with cd:
                 if st.button("✏️ แก้ไข", key=f"e_{r['id']}"):
                     load_into_session(r)
@@ -173,7 +199,7 @@ if st.session_state["mode"] == "list":
                     delete_project(r["id"]); st.rerun()
             st.divider()
 
-# NEW / EDIT
+# ===== NEW / EDIT =====
 elif st.session_state["mode"] in ["new","edit"]:
     is_edit = st.session_state["mode"] == "edit"
     c1,c2   = st.columns([3,1])
@@ -201,75 +227,92 @@ elif st.session_state["mode"] in ["new","edit"]:
             st.session_state["shops"].pop(); st.rerun()
         st.divider()
         st.subheader("🎁 Special Discount (฿)")
-        st.caption("หักก่อนคำนวณ VAT")
-        for s in st.session_state["shops"]:
-            cur = float(st.session_state["shop_discounts"].get(s,0.0))
-            st.session_state["shop_discounts"][s] = st.number_input(
-                f"{s}", value=cur, min_value=0.0, step=1.0, key=f"sd_{s}")
+        st.caption("หักก่อนคำนวณ VAT — แยกต่างหากต่อกลุ่ม")
+        for g_idx, grp in enumerate(st.session_state["groups"]):
+            st.markdown(f"**{grp['name']}**")
+            if "discounts" not in grp: grp["discounts"] = {}
+            for s in st.session_state["shops"]:
+                cur = float(grp["discounts"].get(s,0.0))
+                grp["discounts"][s] = st.number_input(
+                    f"{s}", value=cur, min_value=0.0, step=1.0,
+                    key=f"disc_{g_idx}_{s}")
+            if g_idx < len(st.session_state["groups"])-1:
+                st.markdown("---")
 
     tab1, tab2 = st.tabs(["✏️ กรอกข้อมูล","📊 ตารางเปรียบเทียบ"])
 
+    # ===== TAB 1: กรอกข้อมูล =====
     with tab1:
-        if st.button("➕ เพิ่มรายการสินค้า"):
-            st.session_state["items_list"].append({
-                "name":"สินค้าใหม่","unit":"set","qty":1.0,
-                "prices":{s:0.0 for s in st.session_state["shops"]},
-                "notes":{s:"" for s in st.session_state["shops"]}
-            })
-            st.rerun()
-
         shops = st.session_state["shops"]
-        vat   = st.session_state["vat_rate"]
-        n     = len(st.session_state["items_list"])
 
-        if n == 0:
-            st.info("กด '➕ เพิ่มรายการสินค้า' เพื่อเริ่มกรอกข้อมูลครับ")
-        else:
-            to_del = None
-            for idx in range(n):
-                it = st.session_state["items_list"][idx]
-                if "prices" not in it: it["prices"] = {s:0.0 for s in shops}
-                if "notes"  not in it: it["notes"]  = {s:"" for s in shops}
+        for g_idx in range(len(st.session_state["groups"])):
+            grp = st.session_state["groups"][g_idx]
+            if "items"    not in grp: grp["items"]    = []
+            if "discounts" not in grp: grp["discounts"] = {}
 
-                with st.expander(f"{idx+1}. {it['name']}", expanded=True):
-                    ca,cb,cc,cd = st.columns([3,1,1,0.6])
-                    st.session_state["items_list"][idx]["name"] = ca.text_input("ชื่อสินค้า", it["name"], key=f"n_{idx}")
-                    st.session_state["items_list"][idx]["unit"] = cb.text_input("หน่วย",      it["unit"], key=f"u_{idx}")
-                    st.session_state["items_list"][idx]["qty"]  = cc.number_input("จำนวน",
-                        value=float(it["qty"]), min_value=0.0, step=1.0, key=f"q_{idx}")
-                    if cd.button("🗑", key=f"d_{idx}"): to_del = idx
+            # หัวกลุ่ม
+            gc1, gc2, gc3 = st.columns([3,1,1])
+            grp["name"] = gc1.text_input("ชื่อกลุ่ม", grp["name"], key=f"gname_{g_idx}")
+            if gc3.button("🗑 ลบกลุ่ม", key=f"gdel_{g_idx}") and len(st.session_state["groups"]) > 1:
+                st.session_state["groups"].pop(g_idx); st.rerun()
 
-                    hcols = st.columns(len(shops))
-                    for si,s in enumerate(shops): hcols[si].markdown(f"**{s}**")
+            st.markdown(f"<div class='group-header'>กลุ่ม {g_idx+1}: {grp['name']}</div>", unsafe_allow_html=True)
 
-                    pcols = st.columns(len(shops))
-                    for si,s in enumerate(shops):
-                        cur = float(it["prices"].get(s,0))
-                        val = pcols[si].number_input("Unit Price (฿)", value=cur,
-                                                     min_value=0.0, step=1.0, key=f"p_{idx}_{si}")
-                        st.session_state["items_list"][idx]["prices"][s] = val
+            if gc2.button("➕ เพิ่มสินค้า", key=f"gadd_{g_idx}"):
+                grp["items"].append(new_item(shops)); st.rerun()
 
-                    # ช่องกรอกหมายเหตุ
-                    st.markdown("**📝 หมายเหตุ / เงื่อนไขพิเศษ**")
-                    ncols = st.columns(len(shops))
-                    for si,s in enumerate(shops):
-                        cur_note = it["notes"].get(s,"")
-                        val_note = ncols[si].text_area(
-                            f"หมายเหตุ ({s})", value=cur_note,
-                            placeholder="เช่น รับประกัน 1 ปี, ส่งฟรี, ราคารวมติดตั้ง",
-                            height=80, key=f"note_{idx}_{si}")
-                        st.session_state["items_list"][idx]["notes"][s] = val_note
+            n = len(grp["items"])
+            if n == 0:
+                st.info(f"กด '➕ เพิ่มสินค้า' เพื่อเพิ่มรายการในกลุ่มนี้")
+            else:
+                to_del = None
+                for idx in range(n):
+                    it = grp["items"][idx]
+                    if "prices" not in it: it["prices"] = {s:0.0 for s in shops}
+                    if "notes"  not in it: it["notes"]  = {s:"" for s in shops}
 
-                    st.markdown("---")
-                    scols = st.columns(len(shops))
-                    qty   = float(st.session_state["items_list"][idx]["qty"])
-                    for si,s in enumerate(shops):
-                        price    = float(st.session_state["items_list"][idx]["prices"].get(s,0))
-                        subtotal = price * qty
-                        scols[si].markdown(f"ยอดรวม: **฿{subtotal:,.2f}**")
+                    with st.expander(f"{idx+1}. {it['name']}", expanded=True):
+                        ca,cb,cc,cd = st.columns([3,1,1,0.6])
+                        it["name"] = ca.text_input("ชื่อสินค้า", it["name"], key=f"n_{g_idx}_{idx}")
+                        it["unit"] = cb.text_input("หน่วย",      it["unit"], key=f"u_{g_idx}_{idx}")
+                        it["qty"]  = cc.number_input("จำนวน", value=float(it["qty"]),
+                                                     min_value=0.0, step=1.0, key=f"q_{g_idx}_{idx}")
+                        if cd.button("🗑", key=f"d_{g_idx}_{idx}"): to_del = idx
 
-            if to_del is not None:
-                st.session_state["items_list"].pop(to_del); st.rerun()
+                        hcols = st.columns(len(shops))
+                        for si,s in enumerate(shops): hcols[si].markdown(f"**{s}**")
+
+                        pcols = st.columns(len(shops))
+                        for si,s in enumerate(shops):
+                            cur = float(it["prices"].get(s,0))
+                            it["prices"][s] = pcols[si].number_input(
+                                "Unit Price (฿)", value=cur, min_value=0.0, step=1.0,
+                                key=f"p_{g_idx}_{idx}_{si}")
+
+                        st.markdown("**📝 หมายเหตุ / เงื่อนไขพิเศษ**")
+                        ncols = st.columns(len(shops))
+                        for si,s in enumerate(shops):
+                            it["notes"][s] = ncols[si].text_area(
+                                f"หมายเหตุ ({s})", value=it["notes"].get(s,""),
+                                placeholder="เช่น รับประกัน 1 ปี, ส่งฟรี",
+                                height=70, key=f"note_{g_idx}_{idx}_{si}")
+
+                        st.markdown("---")
+                        scols = st.columns(len(shops))
+                        qty   = float(it["qty"])
+                        for si,s in enumerate(shops):
+                            subtotal = float(it["prices"].get(s,0)) * qty
+                            scols[si].markdown(f"ยอดรวม: **฿{subtotal:,.2f}**")
+
+                if to_del is not None:
+                    grp["items"].pop(to_del); st.rerun()
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+        # ปุ่มเพิ่มกลุ่ม
+        if st.button("➕ เพิ่มกลุ่มสินค้าใหม่"):
+            st.session_state["groups"].append(new_group(len(st.session_state["groups"])+1))
+            st.rerun()
 
         st.divider()
         if st.button("💾 บันทึกลง Google Sheets", type="primary"):
@@ -280,7 +323,7 @@ elif st.session_state["mode"] in ["new","edit"]:
                 "vat_rate":st.session_state["vat_rate"],
                 "shops":st.session_state["shops"],
                 "shop_discounts":st.session_state["shop_discounts"],
-                "items":st.session_state["items_list"],
+                "groups":st.session_state["groups"],
             }
             with st.spinner("กำลังบันทึก..."):
                 pid = save_project(project_data, st.session_state["display_name"],
@@ -289,113 +332,141 @@ elif st.session_state["mode"] in ["new","edit"]:
             st.success("✅ บันทึกเรียบร้อยแล้วครับ!")
             st.rerun()
 
+    # ===== TAB 2: ตารางเปรียบเทียบ =====
     with tab2:
-        items_data = st.session_state["items_list"]
-        shops      = st.session_state["shops"]
-        vat        = st.session_state["vat_rate"]
-        shop_disc  = st.session_state["shop_discounts"]
-        doc_date   = st.session_state["doc_date"]
+        shops     = st.session_state["shops"]
+        vat       = st.session_state["vat_rate"]
+        doc_date  = st.session_state["doc_date"]
+        groups    = st.session_state["groups"]
 
-        if not items_data:
+        if not any(g.get("items") for g in groups):
             st.info("ยังไม่มีข้อมูล — กรอกข้อมูลในแท็บ 'กรอกข้อมูล' ก่อนครับ")
         else:
-            grand_sub, grand_disc, grand_after_disc, grand_vat, grand_total = calc_summary(
-                items_data, shops, vat, shop_disc)
+            # สรุปรวมทุกกลุ่ม
+            all_totals = {s:0.0 for s in shops}
 
-            valid = {s: grand_total[s] for s in shops if grand_sub[s] > 0}
-            if valid:
-                best = min(valid, key=valid.get)
-                save = max(valid.values()) - min(valid.values())
-                m1,m2,m3,m4 = st.columns(4)
-                m1.metric("🏆 ร้านถูกสุด (หลังส่วนลด)", best)
-                m2.metric("💰 ยอดสุทธิถูกสุด",           f"฿{valid[best]:,.2f}")
-                m3.metric("✂️ ประหยัดได้",               f"฿{save:,.2f}")
-                m4.metric("📋 จำนวนรายการ",              len(items_data))
+            for g_idx, grp in enumerate(groups):
+                items_data = grp.get("items",[])
+                shop_disc  = grp.get("discounts",{})
+                if not items_data: continue
 
-            st.divider()
+                grand_sub, grand_disc, grand_after_disc, grand_vat, grand_total = calc_group(
+                    items_data, shops, vat, shop_disc)
 
-            # ตารางรายการ (ไม่มีคอลัมน์หมายเหตุ — ย้ายไปอยู่ใต้ summary)
-            rows = []
-            for i,it in enumerate(items_data):
-                qty = float(it["qty"])
-                row = {"Item":i+1,"Detail":it["name"],"Q'TY":int(qty),"Unit":it["unit"]}
-                tot_vals = []
-                for s in shops:
-                    price = float(it["prices"].get(s,0))
-                    total = price * qty
-                    row[f"{s} Unit Price"] = price
-                    row[f"{s} Total"]      = round(total,2)
-                    tot_vals.append(total)
-                valid_tv = [v for v in tot_vals if v > 0]
-                if valid_tv:
-                    row["ถูกสุด (ก่อนส่วนลด)"] = shops[tot_vals.index(min(valid_tv))]
-                rows.append(row)
+                for s in shops: all_totals[s] += grand_total[s]
 
-            df = pd.DataFrame(rows)
+                valid = {s:grand_total[s] for s in shops if grand_sub[s]>0}
+                best  = min(valid, key=valid.get) if valid else None
 
-            def hi(row):
-                tc = [c for c in row.index if "Total" in str(c)]
-                styles = [""]*len(row)
-                vals = {c:float(row[c]) for c in tc if float(row[c])>0}
-                if not vals: return styles
-                mn = min(vals.values())
-                for i,col in enumerate(row.index):
-                    if col in tc and float(row[col])==mn and float(row[col])>0:
-                        styles[i]="background-color:#bbf7d0;font-weight:bold;color:#064e3b"
-                    elif col in tc and float(row[col])>mn:
-                        styles[i]="color:#dc2626"
-                return styles
+                # หัวกลุ่ม
+                st.markdown(f"<div class='group-header'>กลุ่ม {g_idx+1}: {grp['name']}</div>",
+                            unsafe_allow_html=True)
 
-            fmt = {c:"฿{:,.2f}" for c in df.columns if "Price" in str(c) or "Total" in str(c)}
-            st.dataframe(df.style.apply(hi,axis=1).format(fmt),
-                         use_container_width=True, hide_index=True)
+                # metric
+                if valid and best:
+                    save = max(valid.values()) - min(valid.values())
+                    m1,m2,m3,m4 = st.columns(4)
+                    m1.metric("🏆 ถูกสุด (หลังส่วนลด)", best)
+                    m2.metric("💰 ยอดสุทธิถูกสุด",      f"฿{valid[best]:,.2f}")
+                    m3.metric("✂️ ประหยัดได้",           f"฿{save:,.2f}")
+                    m4.metric("📋 รายการ",               len(items_data))
 
-            st.divider()
+                # ตารางรายการ
+                rows = []
+                for i,it in enumerate(items_data):
+                    qty=float(it["qty"])
+                    row={"Item":i+1,"Detail":it["name"],"Q'TY":int(qty),"Unit":it["unit"]}
+                    tot_vals=[]
+                    for s in shops:
+                        price=float(it["prices"].get(s,0)); total=price*qty
+                        row[f"{s} Unit Price"]=price
+                        row[f"{s} Total"]=round(total,2)
+                        tot_vals.append(total)
+                    valid_tv=[v for v in tot_vals if v>0]
+                    if valid_tv: row["ถูกสุด(ก่อนส่วนลด)"]=shops[tot_vals.index(min(valid_tv))]
+                    rows.append(row)
 
-            # สรุปยอดรวม
-            st.subheader("📋 สรุปยอดรวม")
-            sum_rows = [
-                ("ยอดรวมก่อนส่วนลด",   grand_sub,        False),
-                ("SPECIAL DISCOUNT (-)", grand_disc,       True),
-                ("TOTAL (EXC. VAT)",     grand_after_disc, False),
-                (f"VAT {vat:.0f}%",      grand_vat,        False),
-                ("TOTAL (INC. VAT)",     grand_total,      False),
-            ]
-            hcols = st.columns([2]+[1]*len(shops))
-            hcols[0].markdown("**รายการ**")
-            for si,s in enumerate(shops):
-                lbl = "🏆 " if valid and s==best else ""
-                hcols[si+1].markdown(f"**{lbl}{s}**")
+                df=pd.DataFrame(rows)
+                def hi(row):
+                    tc=[c for c in row.index if "Total" in str(c)]
+                    styles=[""]*len(row)
+                    vals={c:float(row[c]) for c in tc if float(row[c])>0}
+                    if not vals: return styles
+                    mn=min(vals.values())
+                    for i,col in enumerate(row.index):
+                        if col in tc and float(row[col])==mn and float(row[col])>0:
+                            styles[i]="background-color:#bbf7d0;font-weight:bold;color:#064e3b"
+                        elif col in tc and float(row[col])>mn:
+                            styles[i]="color:#dc2626"
+                    return styles
 
-            for label,vals,is_disc in sum_rows:
-                rcols = st.columns([2]+[1]*len(shops))
-                rcols[0].markdown(f"**{label}**")
+                fmt={c:"฿{:,.2f}" for c in df.columns if "Price" in str(c) or "Total" in str(c)}
+                st.dataframe(df.style.apply(hi,axis=1).format(fmt),
+                             use_container_width=True, hide_index=True)
+
+                # สรุปยอดกลุ่ม
+                st.markdown("**สรุปยอดรวม**")
+                sum_rows=[
+                    ("ยอดรวมก่อนส่วนลด",  grand_sub,        False),
+                    ("SPECIAL DISCOUNT (-)",grand_disc,       True),
+                    ("TOTAL (EXC. VAT)",   grand_after_disc, False),
+                    (f"VAT {vat:.0f}%",    grand_vat,        False),
+                    ("TOTAL (INC. VAT)",   grand_total,      False),
+                ]
+                hcols=st.columns([2]+[1]*len(shops))
+                hcols[0].markdown("**รายการ**")
                 for si,s in enumerate(shops):
-                    v       = vals.get(s,0)
-                    is_best = label=="TOTAL (INC. VAT)" and valid and s==best
-                    disp    = f"-฿{v:,.2f}" if is_disc else f"฿{v:,.2f}"
-                    if is_best: rcols[si+1].success(f"**{disp}**")
-                    else:       rcols[si+1].markdown(disp)
+                    lbl="🏆 " if valid and s==best else ""
+                    hcols[si+1].markdown(f"**{lbl}{s}**")
+                for label,vals,is_disc in sum_rows:
+                    rcols=st.columns([2]+[1]*len(shops))
+                    rcols[0].markdown(f"**{label}**")
+                    for si,s in enumerate(shops):
+                        v=vals.get(s,0)
+                        is_b=label=="TOTAL (INC. VAT)" and valid and s==best
+                        disp=f"-฿{v:,.2f}" if is_disc else f"฿{v:,.2f}"
+                        if is_b: rcols[si+1].success(f"**{disp}**")
+                        else:    rcols[si+1].markdown(disp)
 
-            # ===== หมายเหตุ — อยู่ใต้ TOTAL (INC. VAT) =====
-            st.divider()
-            st.subheader("📝 หมายเหตุ / เงื่อนไขพิเศษ")
-            note_cols = st.columns(len(shops))
-            for si,s in enumerate(shops):
-                lbl = "🏆 " if valid and s==best else ""
-                with note_cols[si]:
-                    st.markdown(f"**{lbl}{s}**")
-                    has_note = False
-                    for it in items_data:
-                        note = it.get("notes",{}).get(s,"").strip()
-                        if note:
-                            has_note = True
-                            st.markdown(f"**· {it['name']}**")
-                            st.markdown(f"&nbsp;&nbsp;{note}")
-                    if not has_note:
-                        st.markdown("_ไม่มีหมายเหตุ_")
+                # หมายเหตุ
+                has_notes = any(
+                    it.get("notes",{}).get(s,"").strip()
+                    for it in items_data for s in shops)
+                if has_notes:
+                    st.markdown("**📝 หมายเหตุ**")
+                    ncols=st.columns(len(shops))
+                    for si,s in enumerate(shops):
+                        lbl="🏆 " if valid and s==best else ""
+                        with ncols[si]:
+                            st.markdown(f"**{lbl}{s}**")
+                            for it in items_data:
+                                note=it.get("notes",{}).get(s,"").strip()
+                                if note:
+                                    st.markdown(f"**· {it['name']}**")
+                                    st.markdown(f"&nbsp;&nbsp;{note}")
 
-            st.divider()
+                st.divider()
+
+            # สรุปรวมทุกกลุ่ม
+            valid_all={s:all_totals[s] for s in shops if all_totals[s]>0}
+            if valid_all and len(groups)>1:
+                best_all=min(valid_all,key=valid_all.get)
+                save_all=max(valid_all.values())-min(valid_all.values())
+                st.markdown("## 📊 สรุปรวมทุกกลุ่ม")
+                m1,m2,m3=st.columns(3)
+                m1.metric("🏆 ร้านถูกสุดโดยรวม",   best_all)
+                m2.metric("💰 ยอดรวมทุกกลุ่มถูกสุด",f"฿{valid_all[best_all]:,.2f}")
+                m3.metric("✂️ ประหยัดได้รวม",        f"฿{save_all:,.2f}")
+
+                hcols=st.columns([2]+[1]*len(shops))
+                hcols[0].markdown("**ร้านค้า**")
+                for si,s in enumerate(shops):
+                    lbl="🏆 " if s==best_all else ""
+                    is_b=s==best_all
+                    if is_b: hcols[si+1].success(f"**{lbl}{s}  \n฿{all_totals[s]:,.2f}**")
+                    else:    hcols[si+1].markdown(f"**{s}**  \n฿{all_totals[s]:,.2f}")
+
+                st.divider()
 
             # ===== Export =====
             def export_excel():
@@ -403,7 +474,7 @@ elif st.session_state["mode"] in ["new","edit"]:
                 from openpyxl.styles import Font,PatternFill,Alignment,Border,Side
                 from openpyxl.utils import get_column_letter
 
-                wb = Workbook(); ws = wb.active; ws.title="เปรียบเทียบราคา"
+                wb=Workbook(); ws=wb.active; ws.title="เปรียบเทียบราคา"
                 GREEN="1D9E75"; GL="E1F5EE"; WHITE="FFFFFF"; DARK="1E293B"
                 BEST="BBFFD9"; AMBER="FEF9C3"; GRAY="F1F5F9"; NOTE_BG="FFFDE7"
                 shop_colors=[("1D6B9A","E8F4FD"),("B45309","FEF9C3"),
@@ -427,7 +498,7 @@ elif st.session_state["mode"] in ["new","edit"]:
                 SHOP_START=5
                 total_cols=SHOP_START+n_shops*2-1
 
-                # แถว 1-2
+                # แถว 1-2: ชื่อโครงการ
                 ws.merge_cells(start_row=1,start_column=1,end_row=1,end_column=total_cols)
                 t=ws.cell(row=1,column=1,value=f"เปรียบเทียบราคา {st.session_state['project_name']}")
                 t.font=Font(bold=True,size=16,color=GREEN,name="Tahoma")
@@ -440,101 +511,178 @@ elif st.session_state["mode"] in ["new","edit"]:
                 d.font=Font(size=10,color="64748B",name="Tahoma")
                 d.alignment=Alignment(horizontal="center")
                 ws.row_dimensions[2].height=18
-                ws.row_dimensions[3].height=8
+                ws.row_dimensions[3].height=10
 
-                # header 4-5
-                for c,label in [(1,"Item"),(2,"Detail"),(3,"Q'TY"),(4,"Unit")]:
-                    ws.merge_cells(start_row=4,start_column=c,end_row=5,end_column=c)
-                    cs(4,c,label,bold=True,color=WHITE,bg=GREEN,align="center",border=bdr_med,size=10,wrap=True)
+                current_row=4
 
-                for si,shop in enumerate(shops):
-                    col_up=SHOP_START+si*2; col_tot=col_up+1
-                    hc,lc=shop_colors[si%5]
-                    ws.merge_cells(start_row=4,start_column=col_up,end_row=4,end_column=col_tot)
-                    cs(4,col_up,shop,bold=True,color=WHITE,bg=hc,align="center",border=bdr_med,size=10,wrap=True)
-                    cs(5,col_up, "Unit Price",bold=True,color=DARK,bg=lc,align="center",border=bdr,size=9)
-                    cs(5,col_tot,"Total",     bold=True,color=DARK,bg=lc,align="center",border=bdr,size=9)
+                for g_idx,grp in enumerate(groups):
+                    items_data=grp.get("items",[])
+                    shop_disc=grp.get("discounts",{})
+                    if not items_data: continue
 
-                ws.row_dimensions[4].height=22; ws.row_dimensions[5].height=18
+                    grand_sub,grand_disc,grand_after_disc,grand_vat,grand_total=calc_group(
+                        items_data,shops,vat,shop_disc)
+                    valid={s:grand_total[s] for s in shops if grand_sub[s]>0}
+                    best_idx=shops.index(min(valid,key=valid.get)) if valid else None
 
-                # data rows
-                row=6; stripe=["FFFFFF","F8FAFC"]
-                for i,it in enumerate(items_data):
-                    qty=float(it["qty"]); bg=stripe[i%2]
-                    cs(row,1,i+1,align="center",bg=bg)
-                    cs(row,2,it["name"],align="left",bg=bg,wrap=True)
-                    cs(row,3,int(qty),align="center",bg=bg)
-                    cs(row,4,it["unit"],align="center",bg=bg)
+                    # หัวกลุ่ม
+                    ws.merge_cells(start_row=current_row,start_column=1,
+                                   end_row=current_row,end_column=total_cols)
+                    g=ws.cell(row=current_row,column=1,
+                              value=f"กลุ่ม {g_idx+1}: {grp['name']}")
+                    g.font=Font(bold=True,size=12,color=WHITE,name="Tahoma")
+                    g.fill=PatternFill("solid",fgColor=GREEN)
+                    g.alignment=Alignment(horizontal="left",vertical="center")
+                    ws.row_dimensions[current_row].height=22
+                    current_row+=1
 
-                    tot_vals=[float(it["prices"].get(s,0))*qty for s in shops]
-                    valid_tv=[v for v in tot_vals if v>0]
-                    best_p=min(valid_tv) if valid_tv else None
+                    # header row (2 แถว)
+                    for c,label in [(1,"Item"),(2,"Detail"),(3,"Q'TY"),(4,"Unit")]:
+                        ws.merge_cells(start_row=current_row,start_column=c,
+                                       end_row=current_row+1,end_column=c)
+                        cs(current_row,c,label,bold=True,color=WHITE,bg=GREEN,
+                           align="center",border=bdr_med,size=10,wrap=True)
 
                     for si,shop in enumerate(shops):
                         col_up=SHOP_START+si*2; col_tot=col_up+1
-                        price=float(it["prices"].get(shop,0)); total=price*qty
-                        is_b=best_p and total==best_p and total>0
-                        cell_bg=BEST if is_b else bg
-                        cs(row,col_up, price,align="right",bg=cell_bg,fmt='#,##0.00',bold=is_b)
-                        cs(row,col_tot,total,align="right",bg=cell_bg,fmt='#,##0.00',bold=is_b)
-                    ws.row_dimensions[row].height=20; row+=1
+                        hc,lc=shop_colors[si%5]
+                        ws.merge_cells(start_row=current_row,start_column=col_up,
+                                       end_row=current_row,end_column=col_tot)
+                        lbl=("* " if si==best_idx else "")+shop
+                        cs(current_row,col_up,lbl,bold=True,color=WHITE,bg=hc,
+                           align="center",border=bdr_med,size=10,wrap=True)
+                        cs(current_row+1,col_up, "Unit Price",bold=True,color=DARK,
+                           bg=lc,align="center",border=bdr,size=9)
+                        cs(current_row+1,col_tot,"Total",     bold=True,color=DARK,
+                           bg=lc,align="center",border=bdr,size=9)
 
-                # summary rows
-                best_idx=shops.index(best) if valid else None
-                sum_defs=[
-                    ("ยอดรวมก่อนส่วนลด", grand_sub,        GRAY, False, False),
-                    ("SPECIAL DISCOUNT",  grand_disc,       AMBER,False, True),
-                    ("TOTAL (EXC. VAT)",  grand_after_disc, GRAY, True,  False),
-                    (f"VAT {vat:.0f}%",   grand_vat,        GRAY, False, False),
-                    ("TOTAL (INC. VAT)",  grand_total,      GL,   True,  False),
-                ]
-                for label,vals,sbg,sbold,is_disc in sum_defs:
-                    ws.merge_cells(start_row=row,start_column=1,end_row=row,end_column=4)
-                    cs(row,1,label,bold=sbold,align="right",bg=sbg,size=10)
+                    ws.row_dimensions[current_row].height=22
+                    ws.row_dimensions[current_row+1].height=16
+                    current_row+=2
+
+                    # data rows
+                    stripe=["FFFFFF","F8FAFC"]
+                    for i,it in enumerate(items_data):
+                        qty=float(it["qty"]); bg=stripe[i%2]
+                        cs(current_row,1,i+1,align="center",bg=bg)
+                        cs(current_row,2,it["name"],align="left",bg=bg,wrap=True)
+                        cs(current_row,3,int(qty),align="center",bg=bg)
+                        cs(current_row,4,it["unit"],align="center",bg=bg)
+
+                        tot_vals=[float(it["prices"].get(s,0))*qty for s in shops]
+                        valid_tv=[v for v in tot_vals if v>0]
+                        best_p=min(valid_tv) if valid_tv else None
+
+                        for si,shop in enumerate(shops):
+                            col_up=SHOP_START+si*2; col_tot=col_up+1
+                            price=float(it["prices"].get(shop,0)); total=price*qty
+                            is_b=best_p and total==best_p and total>0
+                            cell_bg=BEST if is_b else bg
+                            cs(current_row,col_up, price,align="right",bg=cell_bg,fmt='#,##0.00',bold=is_b)
+                            cs(current_row,col_tot,total,align="right",bg=cell_bg,fmt='#,##0.00',bold=is_b)
+                        ws.row_dimensions[current_row].height=20
+                        current_row+=1
+
+                    # summary rows
+                    sum_defs=[
+                        ("SPECIAL DISCOUNT", grand_disc,       AMBER,False,True),
+                        ("TOTAL (EXC. VAT)", grand_after_disc, GRAY, True, False),
+                        (f"VAT {vat:.0f}%",  grand_vat,        GRAY, False,False),
+                        ("TOTAL (INC. VAT)", grand_total,      GL,   True, False),
+                    ]
+                    for label,vals,sbg,sbold,is_disc in sum_defs:
+                        ws.merge_cells(start_row=current_row,start_column=1,
+                                       end_row=current_row,end_column=4)
+                        cs(current_row,1,label,bold=sbold,align="right",bg=sbg,size=10)
+                        for si,shop in enumerate(shops):
+                            col_up=SHOP_START+si*2; col_tot=col_up+1
+                            v=vals.get(shop,0)
+                            is_b=label=="TOTAL (INC. VAT)" and si==best_idx
+                            cell_bg=BEST if is_b else sbg
+                            disp=-v if is_disc else v
+                            ws.merge_cells(start_row=current_row,start_column=col_up,
+                                           end_row=current_row,end_column=col_tot)
+                            cs(current_row,col_up,disp,bold=sbold or is_b,
+                               align="right",bg=cell_bg,fmt='#,##0.00',size=10)
+                        ws.row_dimensions[current_row].height=18
+                        current_row+=1
+
+                    # หมายเหตุ
+                    has_any=any(it.get("notes",{}).get(s,"").strip()
+                                for it in items_data for s in shops)
+                    if has_any:
+                        current_row+=1
+                        ws.merge_cells(start_row=current_row,start_column=1,
+                                       end_row=current_row,end_column=total_cols)
+                        cs(current_row,1,"หมายเหตุ / เงื่อนไขพิเศษ",
+                           bold=True,color=WHITE,bg=GREEN,align="left",size=10)
+                        ws.row_dimensions[current_row].height=18
+                        current_row+=1
+
+                        # หัวร้าน
+                        ws.merge_cells(start_row=current_row,start_column=1,
+                                       end_row=current_row,end_column=4)
+                        cs(current_row,1,"รายการ",bold=True,color=DARK,bg=GRAY,align="left",size=10)
+                        for si,shop in enumerate(shops):
+                            col_up=SHOP_START+si*2; col_tot=col_up+1
+                            hc,_=shop_colors[si%5]
+                            lbl=("* " if si==best_idx else "")+shop
+                            ws.merge_cells(start_row=current_row,start_column=col_up,
+                                           end_row=current_row,end_column=col_tot)
+                            cs(current_row,col_up,lbl,bold=True,color=WHITE,bg=hc,
+                               align="center",border=bdr_med,size=10)
+                        ws.row_dimensions[current_row].height=18
+                        current_row+=1
+
+                        for it in items_data:
+                            has_n=any(it.get("notes",{}).get(s,"").strip() for s in shops)
+                            if not has_n: continue
+                            ws.merge_cells(start_row=current_row,start_column=1,
+                                           end_row=current_row,end_column=4)
+                            cs(current_row,1,f"· {it['name']}",bold=True,color=DARK,
+                               bg="F8FAFC",align="left",size=10)
+                            for si,shop in enumerate(shops):
+                                col_up=SHOP_START+si*2; col_tot=col_up+1
+                                note=it.get("notes",{}).get(shop,"").strip()
+                                ws.merge_cells(start_row=current_row,start_column=col_up,
+                                               end_row=current_row,end_column=col_tot)
+                                cs(current_row,col_up,note,bold=False,color=DARK,
+                                   bg=NOTE_BG if note else "F8FAFC",align="left",size=10,wrap=True)
+                            ws.row_dimensions[current_row].height=18
+                            current_row+=1
+
+                    # ช่องว่างระหว่างกลุ่ม
+                    current_row+=2
+
+                # สรุปรวมทุกกลุ่ม
+                if len([g for g in groups if g.get("items")]) > 1:
+                    ws.merge_cells(start_row=current_row,start_column=1,
+                                   end_row=current_row,end_column=total_cols)
+                    g=ws.cell(row=current_row,column=1,value="สรุปรวมทุกกลุ่ม")
+                    g.font=Font(bold=True,size=12,color=WHITE,name="Tahoma")
+                    g.fill=PatternFill("solid",fgColor="0F6E56")
+                    g.alignment=Alignment(horizontal="left",vertical="center")
+                    ws.row_dimensions[current_row].height=22
+                    current_row+=1
+
+                    valid_all={s:all_totals[s] for s in shops if all_totals[s]>0}
+                    best_all_idx=shops.index(min(valid_all,key=valid_all.get)) if valid_all else None
+
+                    ws.merge_cells(start_row=current_row,start_column=1,
+                                   end_row=current_row,end_column=4)
+                    cs(current_row,1,"ยอดรวม TOTAL (INC. VAT) ทุกกลุ่ม",
+                       bold=True,align="right",bg=GL,size=10)
                     for si,shop in enumerate(shops):
                         col_up=SHOP_START+si*2; col_tot=col_up+1
-                        v=vals.get(shop,0)
-                        is_b=label=="TOTAL (INC. VAT)" and si==best_idx
-                        cell_bg=BEST if is_b else sbg
-                        disp=-v if is_disc else v
-                        ws.merge_cells(start_row=row,start_column=col_up,end_row=row,end_column=col_tot)
-                        cs(row,col_up,disp,bold=sbold or is_b,align="right",bg=cell_bg,fmt='#,##0.00',size=10)
-                    ws.row_dimensions[row].height=18; row+=1
+                        v=all_totals[shop]
+                        is_b=si==best_all_idx
+                        ws.merge_cells(start_row=current_row,start_column=col_up,
+                                       end_row=current_row,end_column=col_tot)
+                        cs(current_row,col_up,v,bold=is_b,align="right",
+                           bg=BEST if is_b else GL,fmt='#,##0.00',size=11)
+                    ws.row_dimensions[current_row].height=22
 
-                # ===== หมายเหตุ — อยู่ใต้ TOTAL (INC. VAT) =====
-                row += 1  # เว้นบรรทัด
-                ws.merge_cells(start_row=row,start_column=1,end_row=row,end_column=total_cols)
-                cs(row,1,"หมายเหตุ / เงื่อนไขพิเศษ",bold=True,color=WHITE,bg=GREEN,
-                   align="left",size=11)
-                ws.row_dimensions[row].height=20; row+=1
-
-                # หัวร้าน
-                for si,shop in enumerate(shops):
-                    col_up=SHOP_START+si*2; col_tot=col_up+1
-                    hc,lc=shop_colors[si%5]
-                    ws.merge_cells(start_row=row,start_column=col_up,end_row=row,end_column=col_tot)
-                    lbl = ("* " if si==best_idx else "") + shop
-                    cs(row,col_up,lbl,bold=True,color=WHITE,bg=hc,align="center",border=bdr_med,size=10)
-                if len(items_data) > 0:
-                    ws.merge_cells(start_row=row,start_column=1,end_row=row,end_column=4)
-                    cs(row,1,"รายการ",bold=True,color=DARK,bg=GRAY,align="left",size=10)
-                ws.row_dimensions[row].height=18; row+=1
-
-                # หมายเหตุแต่ละรายการ
-                for it in items_data:
-                    has_any = any(it.get("notes",{}).get(s,"").strip() for s in shops)
-                    if not has_any: continue
-                    ws.merge_cells(start_row=row,start_column=1,end_row=row,end_column=4)
-                    cs(row,1,f"· {it['name']}",bold=True,color=DARK,bg="F8FAFC",align="left",size=10)
-                    for si,shop in enumerate(shops):
-                        col_up=SHOP_START+si*2; col_tot=col_up+1
-                        note=it.get("notes",{}).get(shop,"").strip()
-                        ws.merge_cells(start_row=row,start_column=col_up,end_row=row,end_column=col_tot)
-                        cs(row,col_up,note,bold=False,color=DARK,bg=NOTE_BG if note else "F8FAFC",
-                           align="left",size=10,wrap=True)
-                    ws.row_dimensions[row].height=18; row+=1
-
-                # column widths
+                # ปรับขนาดคอลัมน์
                 ws.column_dimensions[get_column_letter(1)].width=6
                 ws.column_dimensions[get_column_letter(2)].width=36
                 ws.column_dimensions[get_column_letter(3)].width=7
@@ -543,123 +691,15 @@ elif st.session_state["mode"] in ["new","edit"]:
                     base=SHOP_START+si*2
                     ws.column_dimensions[get_column_letter(base)].width=13
                     ws.column_dimensions[get_column_letter(base+1)].width=13
-                ws.freeze_panes="E6"
+                ws.freeze_panes="E4"
 
                 out=io.BytesIO(); wb.save(out); out.seek(0)
                 return out.getvalue()
 
-            def export_pdf_html():
-                shop_headers = "".join(f'<th colspan="2">{s}</th>' for s in shops)
-                sub_headers  = "".join("<th>Unit Price</th><th>Total</th>" for s in shops)
-
-                item_rows = ""
-                for i,it in enumerate(items_data):
-                    qty=float(it["qty"])
-                    tot_vals=[float(it["prices"].get(s,0))*qty for s in shops]
-                    valid_tv=[v for v in tot_vals if v>0]
-                    best_p=min(valid_tv) if valid_tv else None
-                    bg="#f9fafb" if i%2==1 else "#ffffff"
-                    cols=f'<td style="text-align:center">{i+1}</td>'
-                    cols+=f'<td>{it["name"]}</td>'
-                    cols+=f'<td style="text-align:center">{int(qty)}</td>'
-                    cols+=f'<td style="text-align:center">{it["unit"]}</td>'
-                    for s in shops:
-                        price=float(it["prices"].get(s,0)); total=price*qty
-                        is_b=best_p and total==best_p and total>0
-                        st_="background:#bbf7d0;font-weight:bold" if is_b else ""
-                        cols+=f'<td style="text-align:right;{st_}">฿{price:,.2f}</td>'
-                        cols+=f'<td style="text-align:right;{st_}">฿{total:,.2f}</td>'
-                    item_rows+=f'<tr style="background:{bg}">{cols}</tr>'
-
-                sum_section=""
-                best_idx2=shops.index(best) if valid else None
-                sum_defs2=[
-                    ("ยอดรวมก่อนส่วนลด", grand_sub,        False, False),
-                    ("SPECIAL DISCOUNT",  grand_disc,       True,  False),
-                    ("TOTAL (EXC. VAT)",  grand_after_disc, False, True),
-                    (f"VAT {vat:.0f}%",   grand_vat,        False, False),
-                    ("TOTAL (INC. VAT)",  grand_total,      False, True),
-                ]
-                for label,vals,is_disc,is_bold in sum_defs2:
-                    bw="font-weight:bold" if is_bold else ""
-                    r=f'<td colspan="4" style="text-align:right;padding:6px 8px;{bw}">{label}</td>'
-                    for si,s in enumerate(shops):
-                        v=vals.get(s,0); disp=f"-฿{v:,.2f}" if is_disc else f"฿{v:,.2f}"
-                        is_b=label=="TOTAL (INC. VAT)" and si==best_idx2
-                        st_="background:#bbf7d0;font-weight:bold;color:#064e3b" if is_b else bw
-                        r+=f'<td colspan="2" style="text-align:right;padding:6px 8px;{st_}">{disp}</td>'
-                    sum_section+=f"<tr>{r}</tr>"
-
-                # หมายเหตุ section
-                note_section = '<tr><th colspan="4" style="text-align:left">รายการ</th>'
-                for si,s in enumerate(shops):
-                    lbl = ("* " if si==best_idx2 else "") + s
-                    note_section += f'<th colspan="2">{lbl}</th>'
-                note_section += "</tr>"
-
-                for it in items_data:
-                    has_any = any(it.get("notes",{}).get(s,"").strip() for s in shops)
-                    if not has_any: continue
-                    r=f'<td colspan="4" style="font-weight:bold;padding:5px 8px">· {it["name"]}</td>'
-                    for s in shops:
-                        note=it.get("notes",{}).get(s,"").strip()
-                        bg_n="#fffde7" if note else "#ffffff"
-                        r+=f'<td colspan="2" style="font-size:10px;background:{bg_n};padding:5px 8px">{note}</td>'
-                    note_section+=f"<tr>{r}</tr>"
-
-                html=f"""<!DOCTYPE html>
-<html><head><meta charset="UTF-8">
-<title>{st.session_state['doc_title']}</title>
-<style>
-  body{{font-family:Tahoma,sans-serif;font-size:12px;color:#1e293b;margin:20px}}
-  h1{{font-size:18px;color:#1D9E75;text-align:center;margin-bottom:4px}}
-  .sub{{text-align:center;color:#6b7280;font-size:11px;margin-bottom:16px}}
-  table{{width:100%;border-collapse:collapse;margin-top:8px}}
-  th{{background:#1D9E75;color:white;padding:7px 8px;font-size:11px}}
-  td{{padding:6px 8px;border-bottom:1px solid #e2e8f0}}
-  .sum-table th{{background:#f1f5f9;color:#1e293b}}
-  .note-table th{{background:#1D9E75;color:white}}
-  @media print{{button{{display:none}}}}
-</style></head><body>
-<h1>เปรียบเทียบราคา {st.session_state['project_name']}</h1>
-<div class="sub">วันที่ {doc_date.strftime('%d/%m/%Y')} &nbsp;|&nbsp; VAT {vat:.0f}% &nbsp;|&nbsp; {st.session_state['doc_title']}</div>
-<table>
-  <thead>
-    <tr><th rowspan="2">Item</th><th rowspan="2">Detail</th>
-    <th rowspan="2">Q'TY</th><th rowspan="2">Unit</th>{shop_headers}</tr>
-    <tr>{sub_headers}</tr>
-  </thead>
-  <tbody>{item_rows}</tbody>
-</table>
-<br>
-<table class="sum-table">
-  <thead><tr><th colspan="4">รายการ</th>{"".join(f'<th colspan="2">{s}</th>' for s in shops)}</tr></thead>
-  <tbody>{sum_section}</tbody>
-</table>
-<br>
-<table class="note-table">
-  <thead>{note_section}</thead>
-</table>
-<br>
-<button onclick="window.print()" style="padding:8px 20px;background:#1D9E75;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px">พิมพ์ / บันทึก PDF</button>
-</body></html>"""
-                return html.encode("utf-8")
-
-            col_ex1,col_ex2 = st.columns(2)
-            with col_ex1:
-                st.download_button(
-                    "📊 ดาวน์โหลด Excel",
-                    data=export_excel(),
-                    file_name=f"{st.session_state['doc_title']}_{doc_date.strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-            with col_ex2:
-                st.download_button(
-                    "🖨️ ดาวน์โหลด HTML → พิมพ์เป็น PDF",
-                    data=export_pdf_html(),
-                    file_name=f"{st.session_state['doc_title']}_{doc_date.strftime('%Y%m%d')}.html",
-                    mime="text/html",
-                    use_container_width=True
-                )
-                st.caption("เปิดในเบราว์เซอร์ → กดปุ่ม 'พิมพ์' → Save as PDF")
+            st.download_button(
+                "📊 ดาวน์โหลด Excel (ทุกกลุ่มในชีตเดียว)",
+                data=export_excel(),
+                file_name=f"{st.session_state['doc_title']}_{doc_date.strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
