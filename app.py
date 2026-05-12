@@ -156,26 +156,32 @@ with tab1:
         st.info("ยังไม่มีรายการ — อัปโหลดไฟล์ทางซ้าย หรือกด 'เพิ่มรายการสินค้า'")
     else:
         to_delete = None
-        items_copy = list(st.session_state.items)
-        for idx, item in enumerate(items_copy):
+        num_items = len(st.session_state.items)
+
+        for idx in range(num_items):
+            item = st.session_state.items[idx]
             with st.expander(f"{idx+1}. {item['name']}", expanded=True):
                 c1, c2, c3, c4 = st.columns([3, 1, 1, 0.6])
-                item["name"] = c1.text_input("ชื่อสินค้า", item["name"], key=f"n_{idx}")
-                item["unit"] = c2.text_input("หน่วย", item["unit"], key=f"u_{idx}")
-                item["qty"]  = c3.number_input("จำนวน", value=float(item["qty"]),
-                                                min_value=0.0, step=1.0, key=f"q_{idx}")
+                st.session_state.items[idx]["name"] = c1.text_input(
+                    "ชื่อสินค้า", item["name"], key=f"n_{idx}")
+                st.session_state.items[idx]["unit"] = c2.text_input(
+                    "หน่วย", item["unit"], key=f"u_{idx}")
+                st.session_state.items[idx]["qty"] = c3.number_input(
+                    "จำนวน", value=float(item["qty"]), min_value=0.0, step=1.0, key=f"q_{idx}")
                 if c4.button("🗑 ลบ", key=f"del_{idx}"):
                     to_delete = idx
 
-                pcols = st.columns(len(st.session_state.shops))
-                for si, shop in enumerate(st.session_state.shops):
-                    if shop not in item["prices"]:
-                        item["prices"][shop] = 0.0
-                    item["prices"][shop] = pcols[si].number_input(
+                shops_now = st.session_state.shops
+                pcols = st.columns(len(shops_now))
+                for si, shop in enumerate(shops_now):
+                    cur_price = float(st.session_state.items[idx]["prices"].get(shop, 0))
+                    new_price = pcols[si].number_input(
                         f"ราคา/หน่วย ({shop})",
-                        value=float(item["prices"].get(shop, 0)),
-                        min_value=0.0, step=1.0, key=f"p_{idx}_{si}"
+                        value=cur_price,
+                        min_value=0.0, step=1.0,
+                        key=f"p_{idx}_{si}"
                     )
+                    st.session_state.items[idx]["prices"][shop] = new_price
 
         if to_delete is not None:
             st.session_state.items.pop(to_delete)
