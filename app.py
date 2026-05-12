@@ -245,74 +245,75 @@ elif st.session_state["mode"] in ["new","edit"]:
     with tab1:
         shops = st.session_state["shops"]
 
-        for g_idx in range(len(st.session_state["groups"])):
-            grp = st.session_state["groups"][g_idx]
-            if "items"    not in grp: grp["items"]    = []
-            if "discounts" not in grp: grp["discounts"] = {}
-
-            # หัวกลุ่ม
-            gc1, gc2, gc3 = st.columns([3,1,1])
-            grp["name"] = gc1.text_input("ชื่อกลุ่ม", grp["name"], key=f"gname_{g_idx}")
-            if gc3.button("🗑 ลบกลุ่ม", key=f"gdel_{g_idx}") and len(st.session_state["groups"]) > 1:
-                st.session_state["groups"].pop(g_idx); st.rerun()
-
-            st.markdown(f"<div class='group-header'>กลุ่ม {g_idx+1}: {grp['name']}</div>", unsafe_allow_html=True)
-
-            if gc2.button("➕ เพิ่มสินค้า", key=f"gadd_{g_idx}"):
-                grp["items"].append(new_item(shops)); st.rerun()
-
-            n = len(grp["items"])
-            if n == 0:
-                st.info(f"กด '➕ เพิ่มสินค้า' เพื่อเพิ่มรายการในกลุ่มนี้")
-            else:
-                to_del = None
-                for idx in range(n):
-                    it = grp["items"][idx]
-                    if "prices" not in it: it["prices"] = {s:0.0 for s in shops}
-                    if "notes"  not in it: it["notes"]  = {s:"" for s in shops}
-
-                    with st.expander(f"{idx+1}. {it['name']}", expanded=True):
-                        ca,cb,cc,cd = st.columns([3,1,1,0.6])
-                        it["name"] = ca.text_input("ชื่อสินค้า", it["name"], key=f"n_{g_idx}_{idx}")
-                        it["unit"] = cb.text_input("หน่วย",      it["unit"], key=f"u_{g_idx}_{idx}")
-                        it["qty"]  = cc.number_input("จำนวน", value=float(it["qty"]),
-                                                     min_value=0.0, step=1.0, key=f"q_{g_idx}_{idx}")
-                        if cd.button("🗑", key=f"d_{g_idx}_{idx}"): to_del = idx
-
-                        hcols = st.columns(len(shops))
-                        for si,s in enumerate(shops): hcols[si].markdown(f"**{s}**")
-
-                        pcols = st.columns(len(shops))
-                        for si,s in enumerate(shops):
-                            cur = float(it["prices"].get(s,0))
-                            it["prices"][s] = pcols[si].number_input(
-                                "Unit Price (฿)", value=cur, min_value=0.0, step=1.0,
-                                key=f"p_{g_idx}_{idx}_{si}")
-
-                        st.markdown("**📝 หมายเหตุ / เงื่อนไขพิเศษ**")
-                        ncols = st.columns(len(shops))
-                        for si,s in enumerate(shops):
-                            it["notes"][s] = ncols[si].text_area(
-                                f"หมายเหตุ ({s})", value=it["notes"].get(s,""),
-                                placeholder="เช่น รับประกัน 1 ปี, ส่งฟรี",
-                                height=70, key=f"note_{g_idx}_{idx}_{si}")
-
-                        st.markdown("---")
-                        scols = st.columns(len(shops))
-                        qty   = float(it["qty"])
-                        for si,s in enumerate(shops):
-                            subtotal = float(it["prices"].get(s,0)) * qty
-                            scols[si].markdown(f"ยอดรวม: **฿{subtotal:,.2f}**")
-
-                if to_del is not None:
-                    grp["items"].pop(to_del); st.rerun()
-
-            st.markdown("<br>", unsafe_allow_html=True)
-
-        # ปุ่มเพิ่มกลุ่ม
-        if st.button("➕ เพิ่มกลุ่มสินค้าใหม่"):
+        # ปุ่มเพิ่มกลุ่ม + บันทึก
+        ba, bb = st.columns([1,3])
+        if ba.button("➕ เพิ่มกลุ่มสินค้าใหม่"):
             st.session_state["groups"].append(new_group(len(st.session_state["groups"])+1))
             st.rerun()
+
+        # Sub-tabs แต่ละกลุ่ม
+        group_names = [f"กลุ่ม {i+1}: {g['name']}" for i,g in enumerate(st.session_state["groups"])]
+        sub_tabs = st.tabs(group_names)
+
+        for g_idx, sub_tab in enumerate(sub_tabs):
+            with sub_tab:
+                grp = st.session_state["groups"][g_idx]
+                if "items"     not in grp: grp["items"]     = []
+                if "discounts" not in grp: grp["discounts"]  = {}
+
+                # ตั้งชื่อกลุ่ม + ลบกลุ่ม
+                gc1, gc2, gc3 = st.columns([3,1,1])
+                grp["name"] = gc1.text_input("ชื่อกลุ่ม", grp["name"], key=f"gname_{g_idx}")
+                if gc2.button("➕ เพิ่มสินค้า", key=f"gadd_{g_idx}"):
+                    grp["items"].append(new_item(shops)); st.rerun()
+                if gc3.button("🗑 ลบกลุ่ม", key=f"gdel_{g_idx}") and len(st.session_state["groups"]) > 1:
+                    st.session_state["groups"].pop(g_idx); st.rerun()
+
+                n = len(grp["items"])
+                if n == 0:
+                    st.info("กด '➕ เพิ่มสินค้า' เพื่อเพิ่มรายการในกลุ่มนี้")
+                else:
+                    to_del = None
+                    for idx in range(n):
+                        it = grp["items"][idx]
+                        if "prices" not in it: it["prices"] = {s:0.0 for s in shops}
+                        if "notes"  not in it: it["notes"]  = {s:"" for s in shops}
+
+                        with st.expander(f"{idx+1}. {it['name']}", expanded=True):
+                            ca,cb,cc,cd = st.columns([3,1,1,0.6])
+                            it["name"] = ca.text_input("ชื่อสินค้า", it["name"], key=f"n_{g_idx}_{idx}")
+                            it["unit"] = cb.text_input("หน่วย",      it["unit"], key=f"u_{g_idx}_{idx}")
+                            it["qty"]  = cc.number_input("จำนวน", value=float(it["qty"]),
+                                                         min_value=0.0, step=1.0, key=f"q_{g_idx}_{idx}")
+                            if cd.button("🗑", key=f"d_{g_idx}_{idx}"): to_del = idx
+
+                            hcols = st.columns(len(shops))
+                            for si,s in enumerate(shops): hcols[si].markdown(f"**{s}**")
+
+                            pcols = st.columns(len(shops))
+                            for si,s in enumerate(shops):
+                                cur = float(it["prices"].get(s,0))
+                                it["prices"][s] = pcols[si].number_input(
+                                    "Unit Price (฿)", value=cur, min_value=0.0, step=1.0,
+                                    key=f"p_{g_idx}_{idx}_{si}")
+
+                            st.markdown("**📝 หมายเหตุ / เงื่อนไขพิเศษ**")
+                            ncols = st.columns(len(shops))
+                            for si,s in enumerate(shops):
+                                it["notes"][s] = ncols[si].text_area(
+                                    f"หมายเหตุ ({s})", value=it["notes"].get(s,""),
+                                    placeholder="เช่น รับประกัน 1 ปี, ส่งฟรี",
+                                    height=70, key=f"note_{g_idx}_{idx}_{si}")
+
+                            st.markdown("---")
+                            scols = st.columns(len(shops))
+                            qty   = float(it["qty"])
+                            for si,s in enumerate(shops):
+                                subtotal = float(it["prices"].get(s,0)) * qty
+                                scols[si].markdown(f"ยอดรวม: **฿{subtotal:,.2f}**")
+
+                    if to_del is not None:
+                        grp["items"].pop(to_del); st.rerun()
 
         st.divider()
         if st.button("💾 บันทึกลง Google Sheets", type="primary"):
@@ -342,131 +343,161 @@ elif st.session_state["mode"] in ["new","edit"]:
         if not any(g.get("items") for g in groups):
             st.info("ยังไม่มีข้อมูล — กรอกข้อมูลในแท็บ 'กรอกข้อมูล' ก่อนครับ")
         else:
-            # สรุปรวมทุกกลุ่ม
             all_totals = {s:0.0 for s in shops}
 
-            for g_idx, grp in enumerate(groups):
+            # คำนวณ all_totals ก่อน
+            for grp in groups:
                 items_data = grp.get("items",[])
                 shop_disc  = grp.get("discounts",{})
                 if not items_data: continue
-
-                grand_sub, grand_disc, grand_after_disc, grand_vat, grand_total = calc_group(
-                    items_data, shops, vat, shop_disc)
-
+                _,_,_,_,grand_total = calc_group(items_data, shops, vat, shop_disc)
                 for s in shops: all_totals[s] += grand_total[s]
 
-                valid = {s:grand_total[s] for s in shops if grand_sub[s]>0}
-                best  = min(valid, key=valid.get) if valid else None
+            # Sub-tabs แต่ละกลุ่ม + สรุปรวม
+            group_names_with_data = [g["name"] for g in groups if g.get("items")]
+            tab_labels = [f"กลุ่ม {i+1}: {g['name']}" for i,g in enumerate(groups) if g.get("items")]
+            if len([g for g in groups if g.get("items")]) > 1:
+                tab_labels.append("📊 สรุปรวมทุกกลุ่ม")
 
-                # หัวกลุ่ม
-                st.markdown(f"<div class='group-header'>กลุ่ม {g_idx+1}: {grp['name']}</div>",
-                            unsafe_allow_html=True)
+            if tab_labels:
+                sub_tabs2 = st.tabs(tab_labels)
+                data_groups = [(i,g) for i,g in enumerate(groups) if g.get("items")]
 
-                # metric
-                if valid and best:
-                    save = max(valid.values()) - min(valid.values())
-                    m1,m2,m3,m4 = st.columns(4)
-                    m1.metric("🏆 ถูกสุด (หลังส่วนลด)", best)
-                    m2.metric("💰 ยอดสุทธิถูกสุด",      f"฿{valid[best]:,.2f}")
-                    m3.metric("✂️ ประหยัดได้",           f"฿{save:,.2f}")
-                    m4.metric("📋 รายการ",               len(items_data))
+                for tab_i, (g_idx, grp) in enumerate(data_groups):
+                    with sub_tabs2[tab_i]:
+                        items_data = grp.get("items",[])
+                        shop_disc  = grp.get("discounts",{})
 
-                # ตารางรายการ
-                rows = []
-                for i,it in enumerate(items_data):
-                    qty=float(it["qty"])
-                    row={"Item":i+1,"Detail":it["name"],"Q'TY":int(qty),"Unit":it["unit"]}
-                    tot_vals=[]
-                    for s in shops:
-                        price=float(it["prices"].get(s,0)); total=price*qty
-                        row[f"{s} Unit Price"]=price
-                        row[f"{s} Total"]=round(total,2)
-                        tot_vals.append(total)
-                    valid_tv=[v for v in tot_vals if v>0]
-                    if valid_tv: row["ถูกสุด(ก่อนส่วนลด)"]=shops[tot_vals.index(min(valid_tv))]
-                    rows.append(row)
+                        grand_sub, grand_disc, grand_after_disc, grand_vat, grand_total = calc_group(
+                            items_data, shops, vat, shop_disc)
 
-                df=pd.DataFrame(rows)
-                def hi(row):
-                    tc=[c for c in row.index if "Total" in str(c)]
-                    styles=[""]*len(row)
-                    vals={c:float(row[c]) for c in tc if float(row[c])>0}
-                    if not vals: return styles
-                    mn=min(vals.values())
-                    for i,col in enumerate(row.index):
-                        if col in tc and float(row[col])==mn and float(row[col])>0:
-                            styles[i]="background-color:#bbf7d0;font-weight:bold;color:#064e3b"
-                        elif col in tc and float(row[col])>mn:
-                            styles[i]="color:#dc2626"
-                    return styles
+                        valid = {s:grand_total[s] for s in shops if grand_sub[s]>0}
+                        best  = min(valid, key=valid.get) if valid else None
 
-                fmt={c:"฿{:,.2f}" for c in df.columns if "Price" in str(c) or "Total" in str(c)}
-                st.dataframe(df.style.apply(hi,axis=1).format(fmt),
-                             use_container_width=True, hide_index=True)
+                        if valid and best:
+                            save = max(valid.values()) - min(valid.values())
+                            m1,m2,m3,m4 = st.columns(4)
+                            m1.metric("🏆 ถูกสุด (หลังส่วนลด)", best)
+                            m2.metric("💰 ยอดสุทธิถูกสุด",      f"฿{valid[best]:,.2f}")
+                            m3.metric("✂️ ประหยัดได้",           f"฿{save:,.2f}")
+                            m4.metric("📋 รายการ",               len(items_data))
 
-                # สรุปยอดกลุ่ม
-                st.markdown("**สรุปยอดรวม**")
-                sum_rows=[
-                    ("ยอดรวมก่อนส่วนลด",  grand_sub,        False),
-                    ("SPECIAL DISCOUNT (-)",grand_disc,       True),
-                    ("TOTAL (EXC. VAT)",   grand_after_disc, False),
-                    (f"VAT {vat:.0f}%",    grand_vat,        False),
-                    ("TOTAL (INC. VAT)",   grand_total,      False),
-                ]
-                hcols=st.columns([2]+[1]*len(shops))
-                hcols[0].markdown("**รายการ**")
-                for si,s in enumerate(shops):
-                    lbl="🏆 " if valid and s==best else ""
-                    hcols[si+1].markdown(f"**{lbl}{s}**")
-                for label,vals,is_disc in sum_rows:
-                    rcols=st.columns([2]+[1]*len(shops))
-                    rcols[0].markdown(f"**{label}**")
-                    for si,s in enumerate(shops):
-                        v=vals.get(s,0)
-                        is_b=label=="TOTAL (INC. VAT)" and valid and s==best
-                        disp=f"-฿{v:,.2f}" if is_disc else f"฿{v:,.2f}"
-                        if is_b: rcols[si+1].success(f"**{disp}**")
-                        else:    rcols[si+1].markdown(disp)
+                        rows = []
+                        for i,it in enumerate(items_data):
+                            qty=float(it["qty"])
+                            row={"Item":i+1,"Detail":it["name"],"Q'TY":int(qty),"Unit":it["unit"]}
+                            tot_vals=[]
+                            for s in shops:
+                                price=float(it["prices"].get(s,0)); total=price*qty
+                                row[f"{s} Unit Price"]=price
+                                row[f"{s} Total"]=round(total,2)
+                                tot_vals.append(total)
+                            valid_tv=[v for v in tot_vals if v>0]
+                            if valid_tv: row["ถูกสุด(ก่อนส่วนลด)"]=shops[tot_vals.index(min(valid_tv))]
+                            rows.append(row)
 
-                # หมายเหตุ
-                has_notes = any(
-                    it.get("notes",{}).get(s,"").strip()
-                    for it in items_data for s in shops)
-                if has_notes:
-                    st.markdown("**📝 หมายเหตุ**")
-                    ncols=st.columns(len(shops))
-                    for si,s in enumerate(shops):
-                        lbl="🏆 " if valid and s==best else ""
-                        with ncols[si]:
-                            st.markdown(f"**{lbl}{s}**")
-                            for it in items_data:
-                                note=it.get("notes",{}).get(s,"").strip()
-                                if note:
-                                    st.markdown(f"**· {it['name']}**")
-                                    st.markdown(f"&nbsp;&nbsp;{note}")
+                        df=pd.DataFrame(rows)
+                        def hi(row):
+                            tc=[c for c in row.index if "Total" in str(c)]
+                            styles=[""]*len(row)
+                            vals={c:float(row[c]) for c in tc if float(row[c])>0}
+                            if not vals: return styles
+                            mn=min(vals.values())
+                            for i,col in enumerate(row.index):
+                                if col in tc and float(row[col])==mn and float(row[col])>0:
+                                    styles[i]="background-color:#bbf7d0;font-weight:bold;color:#064e3b"
+                                elif col in tc and float(row[col])>mn:
+                                    styles[i]="color:#dc2626"
+                            return styles
 
-                st.divider()
+                        fmt={c:"฿{:,.2f}" for c in df.columns if "Price" in str(c) or "Total" in str(c)}
+                        st.dataframe(df.style.apply(hi,axis=1).format(fmt),
+                                     use_container_width=True, hide_index=True)
 
-            # สรุปรวมทุกกลุ่ม
-            valid_all={s:all_totals[s] for s in shops if all_totals[s]>0}
-            if valid_all and len(groups)>1:
-                best_all=min(valid_all,key=valid_all.get)
-                save_all=max(valid_all.values())-min(valid_all.values())
-                st.markdown("## 📊 สรุปรวมทุกกลุ่ม")
-                m1,m2,m3=st.columns(3)
-                m1.metric("🏆 ร้านถูกสุดโดยรวม",   best_all)
-                m2.metric("💰 ยอดรวมทุกกลุ่มถูกสุด",f"฿{valid_all[best_all]:,.2f}")
-                m3.metric("✂️ ประหยัดได้รวม",        f"฿{save_all:,.2f}")
+                        st.markdown("**สรุปยอดรวม**")
+                        sum_rows=[
+                            ("ยอดรวมก่อนส่วนลด",   grand_sub,        False),
+                            ("SPECIAL DISCOUNT (-)", grand_disc,       True),
+                            ("TOTAL (EXC. VAT)",    grand_after_disc, False),
+                            (f"VAT {vat:.0f}%",     grand_vat,        False),
+                            ("TOTAL (INC. VAT)",    grand_total,      False),
+                        ]
+                        hcols=st.columns([2]+[1]*len(shops))
+                        hcols[0].markdown("**รายการ**")
+                        for si,s in enumerate(shops):
+                            lbl="🏆 " if valid and s==best else ""
+                            hcols[si+1].markdown(f"**{lbl}{s}**")
+                        for label,vals,is_disc in sum_rows:
+                            rcols=st.columns([2]+[1]*len(shops))
+                            rcols[0].markdown(f"**{label}**")
+                            for si,s in enumerate(shops):
+                                v=vals.get(s,0)
+                                is_b=label=="TOTAL (INC. VAT)" and valid and s==best
+                                disp=f"-฿{v:,.2f}" if is_disc else f"฿{v:,.2f}"
+                                if is_b: rcols[si+1].success(f"**{disp}**")
+                                else:    rcols[si+1].markdown(disp)
 
-                hcols=st.columns([2]+[1]*len(shops))
-                hcols[0].markdown("**ร้านค้า**")
-                for si,s in enumerate(shops):
-                    lbl="🏆 " if s==best_all else ""
-                    is_b=s==best_all
-                    if is_b: hcols[si+1].success(f"**{lbl}{s}  \n฿{all_totals[s]:,.2f}**")
-                    else:    hcols[si+1].markdown(f"**{s}**  \n฿{all_totals[s]:,.2f}")
+                        has_notes=any(it.get("notes",{}).get(s,"").strip()
+                                      for it in items_data for s in shops)
+                        if has_notes:
+                            st.divider()
+                            st.markdown("**📝 หมายเหตุ**")
+                            ncols=st.columns(len(shops))
+                            for si,s in enumerate(shops):
+                                lbl="🏆 " if valid and s==best else ""
+                                with ncols[si]:
+                                    st.markdown(f"**{lbl}{s}**")
+                                    for it in items_data:
+                                        note=it.get("notes",{}).get(s,"").strip()
+                                        if note:
+                                            st.markdown(f"**· {it['name']}**")
+                                            st.markdown(f"&nbsp;&nbsp;{note}")
 
-                st.divider()
+                # Tab สรุปรวม
+                if len(data_groups) > 1:
+                    with sub_tabs2[-1]:
+                        valid_all={s:all_totals[s] for s in shops if all_totals[s]>0}
+                        if valid_all:
+                            best_all=min(valid_all,key=valid_all.get)
+                            save_all=max(valid_all.values())-min(valid_all.values())
+                            m1,m2,m3=st.columns(3)
+                            m1.metric("🏆 ร้านถูกสุดโดยรวม",    best_all)
+                            m2.metric("💰 ยอดรวมทุกกลุ่มถูกสุด", f"฿{valid_all[best_all]:,.2f}")
+                            m3.metric("✂️ ประหยัดได้รวม",         f"฿{save_all:,.2f}")
+
+                        st.divider()
+                        # ตารางสรุปแต่ละกลุ่ม
+                        sum_rows2=[]
+                        for g_idx2,grp2 in enumerate(groups):
+                            if not grp2.get("items"): continue
+                            _,_,_,_,gt=calc_group(grp2["items"],shops,vat,grp2.get("discounts",{}))
+                            row2={"กลุ่ม":f"กลุ่ม {g_idx2+1}: {grp2['name']}"}
+                            for s in shops: row2[f"{s} TOTAL"]=round(gt[s],2)
+                            sum_rows2.append(row2)
+
+                        # แถวรวม
+                        total_row={"กลุ่ม":"รวมทั้งหมด"}
+                        for s in shops: total_row[f"{s} TOTAL"]=round(all_totals[s],2)
+                        sum_rows2.append(total_row)
+
+                        df2=pd.DataFrame(sum_rows2)
+                        def hi2(row):
+                            tc=[c for c in row.index if "TOTAL" in str(c)]
+                            styles=[""]*len(row)
+                            vals={c:float(row[c]) for c in tc if float(row[c])>0}
+                            if not vals: return styles
+                            mn=min(vals.values())
+                            for i,col in enumerate(row.index):
+                                if col in tc and float(row[col])==mn and float(row[col])>0:
+                                    styles[i]="background-color:#bbf7d0;font-weight:bold;color:#064e3b"
+                                elif col in tc and float(row[col])>mn:
+                                    styles[i]="color:#dc2626"
+                            return styles
+                        fmt2={c:"฿{:,.2f}" for c in df2.columns if "TOTAL" in str(c)}
+                        st.dataframe(df2.style.apply(hi2,axis=1).format(fmt2),
+                                     use_container_width=True, hide_index=True)
+
+            st.divider()
 
             # ===== Export =====
             def export_excel():
