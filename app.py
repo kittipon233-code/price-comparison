@@ -249,6 +249,17 @@ elif st.session_state["mode"] in ["new","edit"]:
                                                      min_value=0.0, step=1.0, key=f"p_{idx}_{si}")
                         st.session_state["items_list"][idx]["prices"][s] = val
 
+                    # ช่องกรอกหมายเหตุ
+                    st.markdown("**📝 หมายเหตุ / เงื่อนไขพิเศษ**")
+                    ncols = st.columns(len(shops))
+                    for si,s in enumerate(shops):
+                        cur_note = it["notes"].get(s,"")
+                        val_note = ncols[si].text_area(
+                            f"หมายเหตุ ({s})", value=cur_note,
+                            placeholder="เช่น รับประกัน 1 ปี, ส่งฟรี, ราคารวมติดตั้ง",
+                            height=80, key=f"note_{idx}_{si}")
+                        st.session_state["items_list"][idx]["notes"][s] = val_note
+
                     st.markdown("---")
                     scols = st.columns(len(shops))
                     qty   = float(st.session_state["items_list"][idx]["qty"])
