@@ -221,27 +221,26 @@ if "📋" in menu:
                             st.session_state["shops"].append(sn)
                     st.rerun()
 
-            if "del_shop_idx" not in st.session_state:
-                st.session_state["del_shop_idx"] = None
-
-            new_shops = []
+            # แสดงรายการร้านค้าพร้อมปุ่มลบ
+            shops_to_delete = None
             for i, s in enumerate(st.session_state["shops"]):
                 col_input, col_del = st.columns([4, 0.7])
-                new_name = col_input.text_input(f"ร้านที่ {i+1}", s, key=f"shop_{i}")
-                new_shops.append(new_name)
+                new_name = col_input.text_input(
+                    f"ร้านที่ {i+1}", s, key=f"shop_name_{i}")
+                # อัปเดตชื่อทันที
+                st.session_state["shops"][i] = new_name
                 if len(st.session_state["shops"]) > 2:
                     if col_del.button("🗑", key=f"del_shop_btn_{i}",
-                                      help=f"ลบ {s}"):
-                        st.session_state["del_shop_idx"] = i
+                                      help=f"ลบร้านที่ {i+1}"):
+                        shops_to_delete = i
 
-            # บันทึกชื่อที่แก้ไขก่อน แล้วค่อยลบ
-            st.session_state["shops"] = new_shops
-
-            if st.session_state["del_shop_idx"] is not None:
-                idx_to_del = st.session_state["del_shop_idx"]
-                if 0 <= idx_to_del < len(st.session_state["shops"]):
-                    st.session_state["shops"].pop(idx_to_del)
-                st.session_state["del_shop_idx"] = None
+            if shops_to_delete is not None:
+                st.session_state["shops"].pop(shops_to_delete)
+                # ลบ key เก่าออกจาก session_state เพื่อป้องกัน key ค้าง
+                for j in range(len(st.session_state["shops"]), len(st.session_state["shops"])+5):
+                    k = f"shop_name_{j}"
+                    if k in st.session_state:
+                        del st.session_state[k]
                 st.rerun()
 
             if st.button("➕ เพิ่มร้านค้า"):
