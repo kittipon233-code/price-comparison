@@ -356,12 +356,12 @@ if "📋" in menu:
                                         "ราคา/หน่วย (฿)", value=float(it["prices"].get(s,0)),
                                         min_value=0.0, step=1.0, key=f"p_{g_idx}_{idx}_{si}")
 
-                                # ส่วนลดต่อรายการ
+                                # ส่วนลดต่อรายการ (฿)
                                 dcols = st.columns(len(shops))
                                 for si,s in enumerate(shops):
                                     it["item_discounts"][s] = dcols[si].number_input(
-                                        "ส่วนลดต่อรายการ (%)", value=float(it["item_discounts"].get(s,0)),
-                                        min_value=0.0, max_value=100.0, step=0.5, key=f"id_{g_idx}_{idx}_{si}")
+                                        "ส่วนลด/หน่วย (฿)", value=float(it["item_discounts"].get(s,0)),
+                                        min_value=0.0, step=1.0, key=f"id_{g_idx}_{idx}_{si}")
 
                                 # หมายเหตุ
                                 st.markdown("**หมายเหตุ / เงื่อนไขพิเศษ**")
@@ -377,11 +377,11 @@ if "📋" in menu:
                                 scols = st.columns(len(shops))
                                 qty   = float(it["qty"])
                                 for si,s in enumerate(shops):
-                                    price     = float(it["prices"].get(s,0))
-                                    disc_pct  = float(it["item_discounts"].get(s,0))
-                                    price_aft = price * (1 - disc_pct/100)
-                                    subtotal  = price_aft * qty
-                                    disc_txt  = f" (-{disc_pct:.0f}%)" if disc_pct > 0 else ""
+                                    price    = float(it["prices"].get(s,0))
+                                    disc     = float(it["item_discounts"].get(s,0))
+                                    p_after  = max(price - disc, 0)
+                                    subtotal = p_after * qty
+                                    disc_txt = f" (ลด ฿{disc:,.2f}/หน่วย)" if disc > 0 else ""
                                     scols[si].markdown(f"ยอดรวม{disc_txt}: **฿{subtotal:,.2f}**")
 
                         if to_del is not None:
@@ -430,14 +430,6 @@ if "📋" in menu:
                             m3.metric("ประหยัดได้", f"฿{save_amt:,.2f}")
                             m4.metric("รายการ", len(items_data))
 
-                        # กราฟ
-                        if valid:
-                            chart_data = pd.DataFrame({
-                                "ร้านค้า": list(valid.keys()),
-                                "ยอดรวม (฿)": list(valid.values())
-                            })
-                            st.bar_chart(chart_data.set_index("ร้านค้า"))
-
                         # ตารางรายการ — แยกตามประเภท
                         categories = list(dict.fromkeys(it.get("category","วัสดุ/อุปกรณ์") for it in items_data))
                         for cat in categories:
@@ -449,15 +441,15 @@ if "📋" in menu:
                                 row = {"Item":i+1,"Detail":it["name"],"Q'TY":int(qty),"Unit":it["unit"]}
                                 tot_vals = []
                                 for s in shops:
-                                    price    = float(it["prices"].get(s,0))
-                                    disc_pct = float(it["item_discounts"].get(s,0))
-                                    p_aft    = price*(1-disc_pct/100)
-                                    total    = p_aft*qty
+                                    price = float(it["prices"].get(s,0))
+                                    disc  = float(it["item_discounts"].get(s,0))
+                                    p_aft = max(price - disc, 0)
+                                    total = p_aft * qty
                                     row[f"{s} Unit Price"] = price
-                                    row[f"{s} Disc%"]      = disc_pct if disc_pct>0 else ""
-                                    row[f"{s} Total"]      = round(total,2)
+                                    row[f"{s} ส่วนลด(฿)"] = disc if disc > 0 else ""
+                                    row[f"{s} Total"]      = round(total, 2)
                                     tot_vals.append(total)
-                                valid_tv = [v for v in tot_vals if v>0]
+                                valid_tv = [v for v in tot_vals if v > 0]
                                 if valid_tv: row["ถูกสุด"] = shops[tot_vals.index(min(valid_tv))]
                                 rows.append(row)
 
@@ -474,7 +466,7 @@ if "📋" in menu:
                                     elif col in tc and str(row[col]) not in ["","0"] and float(row[col])>mn:
                                         styles[i]="color:#dc2626"
                                 return styles
-                            fmt={c:"฿{:,.2f}" for c in df.columns if "Total" in str(c) or "Price" in str(c)}
+                            fmt={c:"฿{:,.2f}" for c in df.columns if "Total" in str(c) or "Price" in str(c) or "ส่วนลด" in str(c)}
                             st.dataframe(df.style.apply(hi,axis=1).format(fmt),
                                          use_container_width=True,hide_index=True)
 
@@ -529,13 +521,6 @@ if "📋" in menu:
                             m1.metric("ร้านถูกสุดโดยรวม", best_all)
                             m2.metric("ยอดรวมถูกสุด",     f"฿{valid_all[best_all]:,.2f}")
                             m3.metric("ประหยัดได้รวม",     f"฿{save_all:,.2f}")
-
-                            # กราฟรวม
-                            chart_data2 = pd.DataFrame({
-                                "ร้านค้า":    list(valid_all.keys()),
-                                "ยอดรวม (฿)": list(valid_all.values())
-                            })
-                            st.bar_chart(chart_data2.set_index("ร้านค้า"))
 
                         sum_rows2=[]
                         for g_idx2,grp2 in enumerate(groups):
@@ -631,7 +616,8 @@ if "📋" in menu:
                             cs(current_row,2,f"[{it.get('category','')}] {it['name']}",align="left",bg=bg,wrap=True)
                             cs(current_row,3,int(qty),align="center",bg=bg)
                             cs(current_row,4,it["unit"],align="center",bg=bg)
-                            tot_vals=[float(it["prices"].get(s,0))*(1-float(it.get("item_discounts",{}).get(s,0))/100)*qty for s in shops]
+                            # คำนวณ total โดยใช้ส่วนลด ฿ ต่อหน่วย
+                            tot_vals=[max(float(it["prices"].get(s,0))-float(it.get("item_discounts",{}).get(s,0)),0)*qty for s in shops]
                             valid_tv=[v for v in tot_vals if v>0]
                             best_p=min(valid_tv) if valid_tv else None
                             for si,shop in enumerate(shops):
@@ -642,6 +628,23 @@ if "📋" in menu:
                                 cs(current_row,col_up,price,align="right",bg=cell_bg,fmt='#,##0.00',bold=is_b)
                                 cs(current_row,col_tot,total,align="right",bg=cell_bg,fmt='#,##0.00',bold=is_b)
                             ws.row_dimensions[current_row].height=20; current_row+=1
+
+                            # แถวส่วนลดต่อรายการ (ถ้ามี)
+                            has_item_disc = any(float(it.get("item_discounts",{}).get(s,0))>0 for s in shops)
+                            if has_item_disc:
+                                ws.merge_cells(start_row=current_row,start_column=1,end_row=current_row,end_column=4)
+                                cs(current_row,1,f"ส่วนลด {it['name']}",bold=False,align="right",
+                                   bg=AMBER,size=9,color="633806")
+                                for si,shop in enumerate(shops):
+                                    col_up=SHOP_START+si*2; col_tot=col_up+1
+                                    disc=float(it.get("item_discounts",{}).get(shop,0))
+                                    disc_total=disc*qty
+                                    ws.merge_cells(start_row=current_row,start_column=col_up,
+                                                   end_row=current_row,end_column=col_tot)
+                                    cs(current_row,col_up,-disc_total if disc_total>0 else "",
+                                       align="right",bg=AMBER,fmt='#,##0.00',size=9,
+                                       color="633806")
+                                ws.row_dimensions[current_row].height=16; current_row+=1
                         sum_defs=[
                             ("SPECIAL DISCOUNT",grand_disc,AMBER,False,True),
                             ("TOTAL (EXC. VAT)",grand_after_disc,GRAY,True,False),

@@ -246,10 +246,10 @@ def calc_group(items_data, shops, vat_rate, shop_disc):
     for it in items_data:
         qty = float(it.get("qty", 1))
         for s in shops:
-            price = float(it["prices"].get(s, 0))
-            # ส่วนลดต่อรายการ (%)
-            item_disc_pct = float(it.get("item_discounts", {}).get(s, 0))
-            price_after   = price * (1 - item_disc_pct / 100)
+            price      = float(it["prices"].get(s, 0))
+            # ส่วนลดต่อรายการ (฿ ต่อหน่วย)
+            item_disc  = float(it.get("item_discounts", {}).get(s, 0))
+            price_after = max(price - item_disc, 0)
             grand_sub[s] += price_after * qty
     grand_disc       = {s: float(shop_disc.get(s, 0))               for s in shops}
     grand_after_disc = {s: max(grand_sub[s] - grand_disc[s], 0)      for s in shops}
