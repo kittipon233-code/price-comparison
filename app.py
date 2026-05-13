@@ -466,9 +466,17 @@ if "📋" in menu:
                                     elif col in tc and str(row[col]) not in ["","0"] and float(row[col])>mn:
                                         styles[i]="color:#dc2626"
                                 return styles
-                            fmt={c:"฿{:,.2f}" for c in df.columns if "Total" in str(c) or "Price" in str(c) or "ส่วนลด" in str(c)}
-                            st.dataframe(df.style.apply(hi,axis=1).format(fmt),
-                                         use_container_width=True,hide_index=True)
+                            fmt={c:"฿{:,.2f}" for c in df.columns if "Total" in str(c) or "Price" in str(c)}
+                            # ส่วนลดแสดงเฉพาะค่าที่มี ไม่ format ค่าว่าง
+                            def fmt_disc(v):
+                                if v == "" or v is None: return ""
+                                try: return f"฿{float(v):,.2f}"
+                                except: return ""
+                            disc_cols = [c for c in df.columns if "ส่วนลด" in str(c)]
+                            styled = df.style.apply(hi, axis=1).format(fmt)
+                            for dc in disc_cols:
+                                styled = styled.format(fmt_disc, subset=[dc])
+                            st.dataframe(styled, use_container_width=True, hide_index=True)
 
                         # สรุปยอด
                         st.markdown("**สรุปยอดรวม**")
