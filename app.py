@@ -938,39 +938,31 @@ if "📋" in menu:
             for si, s in enumerate(shops):
                 with fcols[si]:
                     st.markdown(f"**{s}**")
-                    att = st.session_state["project_attachments"].get(s,{})
+                    att = st.session_state["project_attachments"].get(s, {})
                     if att:
                         st.success(f"✅ {att.get('name','')}")
-                        if att.get("drive_link"):
-                            st.markdown(f"[ดูไฟล์ใน Drive]({att['drive_link']})")
-                        if st.button(f"ลบไฟล์", key=f"del_att_{si}"):
+                        if st.button("ลบไฟล์", key=f"del_att_{si}"):
                             del st.session_state["project_attachments"][s]
                             st.rerun()
 
                     uploaded_file = st.file_uploader(
                         "อัปโหลดใบเสนอราคา",
-                        type=["pdf","png","jpg","jpeg"],
-                        key=f"att_{si}"
+                        type=["png","jpg","jpeg"],
+                        key=f"att_{si}",
+                        help="รองรับรูปภาพ JPG/PNG จะรวมใน PDF อัตโนมัติ"
                     )
                     if uploaded_file:
                         file_bytes = uploaded_file.read()
-                        with st.spinner("กำลังอัปโหลดไปยัง Drive..."):
-                            link = upload_to_drive(
-                                file_bytes,
-                                f"{st.session_state['doc_title']}_{s}_{uploaded_file.name}",
-                                uploaded_file.type
-                            )
                         st.session_state["project_attachments"][s] = {
-                            "name":       uploaded_file.name,
-                            "type":       uploaded_file.type,
-                            "bytes":      file_bytes,
-                            "drive_link": link or ""
+                            "name":  uploaded_file.name,
+                            "type":  uploaded_file.type,
+                            "bytes": file_bytes,
                         }
-                        st.success("อัปโหลดสำเร็จ!")
+                        st.success("✅ แนบไฟล์แล้ว จะรวมใน PDF อัตโนมัติ")
                         st.rerun()
 
             st.divider()
-            st.caption("หมายเหตุ: ไฟล์รูปภาพ (JPG/PNG) จะถูกรวมต่อท้ายใน PDF อัตโนมัติ ส่วนไฟล์ PDF ดูได้ผ่านลิงก์ Drive")
+            st.caption("หมายเหตุ: ไฟล์รูปภาพจะถูกรวมต่อท้าย PDF เมื่อกดดาวน์โหลด PDF ในแท็บตารางเปรียบเทียบ")
 
 # ============================================================
 # MENU: ฐานข้อมูลร้านค้า
