@@ -777,34 +777,50 @@ elif "📦" in menu:
     st.caption("Template คือรายการสินค้าที่ใช้บ่อย บันทึกไว้แล้วเรียกใช้ในโครงการได้เลย")
 
     with st.expander("➕ สร้าง Template ใหม่", expanded=False):
-        with st.form("add_tmpl_form"):
-            tc1,tc2 = st.columns(2)
-            tmpl_name = tc1.text_input("ชื่อ Template *")
-            tmpl_cat  = tc2.selectbox("หมวดหมู่", ["ทั่วไป","ก่อสร้าง","IT/Network","ไฟฟ้า","ประปา","อื่นๆ"])
-            st.markdown("**รายการสินค้าใน Template**")
-            tmpl_items_raw = st.text_area(
-                "กรอกรายการ (แต่ละบรรทัด = 1 รายการ รูปแบบ: ชื่อ, หน่วย, จำนวน)",
-                placeholder="Access Point, set, 1\nSwitch 8 Port, เครื่อง, 2\nสายแลน Cat6, เมตร, 100",
-                height=120
-            )
-            if st.form_submit_button("บันทึก Template", type="primary"):
-                if tmpl_name and tmpl_items_raw:
-                    items_parsed = []
-                    for line in tmpl_items_raw.strip().split("\n"):
-                        parts = [p.strip() for p in line.split(",")]
-                        items_parsed.append({
-                            "name":     parts[0] if len(parts)>0 else "",
-                            "unit":     parts[1] if len(parts)>1 else "ชิ้น",
-                            "qty":      float(parts[2]) if len(parts)>2 else 1,
-                            "category": "วัสดุ/อุปกรณ์"
-                        })
-                    save_template({
-                        "name":tmpl_name,"category":tmpl_cat,"items":items_parsed
-                    }, st.session_state["display_name"])
+        tc1,tc2 = st.columns(2)
+        tmpl_name = tc1.text_input("ชื่อ Template *", key="new_tmpl_name")
+        tmpl_cat  = tc2.selectbox("หมวดหมู่", ["ทั่วไป","ก่อสร้าง","IT/Network","ไฟฟ้า","ประปา","อื่นๆ"], key="new_tmpl_cat")
+
+        st.markdown("**รายการสินค้าใน Template**")
+
+        if "tmpl_draft_items" not in st.session_state:
+            st.session_state["tmpl_draft_items"] = [{"name":"","unit":"set","qty":1.0,"category":"วัสดุ/อุปกรณ์"}]
+
+        to_del_tmpl = None
+        for ti, dit in enumerate(st.session_state["tmpl_draft_items"]):
+            ta,tb,tc,td,te = st.columns([3,1,1,1.5,0.5])
+            dit["name"]     = ta.text_input("ชื่อสินค้า", dit["name"],     key=f"ti_name_{ti}")
+            dit["unit"]     = tb.text_input("หน่วย",      dit["unit"],     key=f"ti_unit_{ti}")
+            dit["qty"]      = tc.number_input("จำนวน", value=float(dit["qty"]), min_value=0.0, step=1.0, key=f"ti_qty_{ti}")
+            dit["category"] = td.selectbox("ประเภท", ITEM_CATEGORIES,
+                                           index=ITEM_CATEGORIES.index(dit.get("category","วัสดุ/อุปกรณ์"))
+                                           if dit.get("category") in ITEM_CATEGORIES else 0,
+                                           key=f"ti_cat_{ti}")
+            if te.button("🗑", key=f"ti_del_{ti}") and len(st.session_state["tmpl_draft_items"]) > 1:
+                to_del_tmpl = ti
+
+        if to_del_tmpl is not None:
+            st.session_state["tmpl_draft_items"].pop(to_del_tmpl)
+            st.rerun()
+
+        col_add, col_save = st.columns([1,2])
+        if col_add.button("➕ เพิ่มรายการ"):
+            st.session_state["tmpl_draft_items"].append({"name":"","unit":"set","qty":1.0,"category":"วัสดุ/อุปกรณ์"})
+            st.rerun()
+
+        if col_save.button("💾 บันทึก Template", type="primary"):
+            if tmpl_name:
+                valid_items = [it for it in st.session_state["tmpl_draft_items"] if it["name"].strip()]
+                if valid_items:
+                    save_template({"name":tmpl_name,"category":tmpl_cat,"items":valid_items},
+                                  st.session_state["display_name"])
+                    st.session_state["tmpl_draft_items"] = [{"name":"","unit":"set","qty":1.0,"category":"วัสดุ/อุปกรณ์"}]
                     st.success(f"บันทึก Template '{tmpl_name}' แล้วครับ!")
                     st.rerun()
                 else:
-                    st.error("กรุณาใส่ชื่อและรายการสินค้า")
+                    st.error("กรุณาใส่รายการสินค้าอย่างน้อย 1 รายการ")
+            else:
+                st.error("กรุณาใส่ชื่อ Template")
 
     with st.spinner("กำลังโหลด..."):
         templates = load_templates()
@@ -815,9 +831,10 @@ elif "📦" in menu:
         for t in templates:
             try:    items_list = json.loads(t.get("items","[]"))
             except: items_list = []
+            tid = t.get("id") or t.get("ID","")
             with st.expander(f"**{t.get('name','')}** [{t.get('category','')}] — {len(items_list)} รายการ", expanded=False):
                 for it in items_list:
-                    st.markdown(f"- {it.get('name','')} ({it.get('unit','')}) x{it.get('qty','')}")
+                    st.markdown(f"- **{it.get('name','')}** ({it.get('unit','')}) x{it.get('qty','')} [{it.get('category','')}]")
                 st.caption(f"สร้างโดย: {t.get('created_by','')} เมื่อ {t.get('created_at','')}")
-                if st.button("🗑 ลบ Template นี้", key=f"dtmpl_{t['id']}"):
-                    delete_template(t["id"]); st.rerun()
+                if tid and st.button("🗑 ลบ Template นี้", key=f"dtmpl_{tid}"):
+                    delete_template(tid); st.rerun()

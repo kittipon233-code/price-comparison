@@ -117,13 +117,26 @@ def parse_project(r):
     return shops, shop_discounts, groups
 
 # ===== Shops DB =====
+def _safe_records(ws):
+    try:
+        records = ws.get_all_records()
+        return records
+    except Exception:
+        # ถ้า sheet ว่างหรือไม่มี header ให้ return []
+        return []
+
 def load_shops_db():
-    try:    return get_ws("shops_db").get_all_records()
+    try:    return _safe_records(get_ws("shops_db"))
     except: return []
 
 def save_shop_db(data, created_by, shop_id=None):
     ws  = get_ws("shops_db")
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # ตรวจสอบว่า sheet มี header หรือยัง
+    all_values = ws.get_all_values()
+    if not all_values or all_values[0][0] != "id":
+        ws.update("A1:J1", [["id","name","contact","phone","email","address",
+                              "payment_terms","notes","created_by","created_at"]])
     row = [
         shop_id or "",
         data["name"], data.get("contact",""), data.get("phone",""),
@@ -132,12 +145,12 @@ def save_shop_db(data, created_by, shop_id=None):
         created_by, now
     ]
     if shop_id:
-        records = ws.get_all_records()
+        records = _safe_records(ws)
         for i, r in enumerate(records):
             if str(r.get("id")) == str(shop_id):
                 ws.update(f"A{i+2}:J{i+2}", [row])
                 return shop_id
-    records = ws.get_all_records()
+    records = _safe_records(ws)
     new_id  = len(records) + 1
     row[0]  = new_id
     ws.append_row(row)
@@ -145,7 +158,7 @@ def save_shop_db(data, created_by, shop_id=None):
 
 def delete_shop_db(shop_id):
     ws = get_ws("shops_db")
-    for i, r in enumerate(ws.get_all_records()):
+    for i, r in enumerate(_safe_records(ws)):
         if str(r.get("id")) == str(shop_id):
             ws.delete_rows(i + 2)
             return True
@@ -153,12 +166,16 @@ def delete_shop_db(shop_id):
 
 # ===== Templates =====
 def load_templates():
-    try:    return get_ws("templates").get_all_records()
+    try:    return _safe_records(get_ws("templates"))
     except: return []
 
 def save_template(data, created_by, tmpl_id=None):
     ws  = get_ws("templates")
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # ตรวจสอบว่า sheet มี header หรือยัง
+    all_values = ws.get_all_values()
+    if not all_values or all_values[0][0] != "id":
+        ws.update("A1:F1", [["id","name","category","items","created_by","created_at"]])
     row = [
         tmpl_id or "",
         data["name"], data.get("category","ทั่วไป"),
@@ -166,12 +183,12 @@ def save_template(data, created_by, tmpl_id=None):
         created_by, now
     ]
     if tmpl_id:
-        records = ws.get_all_records()
+        records = _safe_records(ws)
         for i, r in enumerate(records):
             if str(r.get("id")) == str(tmpl_id):
                 ws.update(f"A{i+2}:F{i+2}", [row])
                 return tmpl_id
-    records = ws.get_all_records()
+    records = _safe_records(ws)
     new_id  = len(records) + 1
     row[0]  = new_id
     ws.append_row(row)
@@ -179,7 +196,7 @@ def save_template(data, created_by, tmpl_id=None):
 
 def delete_template(tmpl_id):
     ws = get_ws("templates")
-    for i, r in enumerate(ws.get_all_records()):
+    for i, r in enumerate(_safe_records(ws)):
         if str(r.get("id")) == str(tmpl_id):
             ws.delete_rows(i + 2)
             return True
