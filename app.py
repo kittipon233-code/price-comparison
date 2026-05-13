@@ -326,45 +326,41 @@ if "📋" in menu:
                             m2.metric("ยอดสุทธิ",f"฿{valid[best]:,.2f}")
                             m3.metric("ประหยัดได้",f"฿{sa:,.2f}")
                             m4.metric("รายการ",len(items_data))
-                        cats=list(dict.fromkeys(it.get("category","วัสดุ/อุปกรณ์") for it in items_data))
-                        for cat in cats:
-                            citems=[it for it in items_data if it.get("category","วัสดุ/อุปกรณ์")==cat]
-                            st.markdown(f"**{cat}**")
-                            rows=[]
-                            for i,it in enumerate(citems):
-                                qty=float(it["qty"]); row={"#":i+1,"รายการ":it["name"],"จำนวน":int(qty),"หน่วย":it["unit"]}
-                                tv=[]
-                                for s in shops:
-                                    price=float(it["prices"].get(s,0)); disc=float(it["item_discounts"].get(s,0))
-                                    total=max(price-disc,0)*qty
-                                    row[f"{s} Unit Price"]=price
-                                    row[f"{s} ส่วนลด(฿)"]=disc if disc>0 else ""
-                                    row[f"{s} Total"]=round(total,2); tv.append(total)
-                                vtv=[v for v in tv if v>0]
-                                if vtv: row["ถูกสุด"]=shops[tv.index(min(vtv))]
-                                rows.append(row)
-                            df=pd.DataFrame(rows)
-                            def hi(row):
-                                tc=[c for c in row.index if "Total" in str(c)]
-                                styles=[""]*len(row)
-                                vals={c:float(row[c]) for c in tc if str(row[c]) not in ["","0.0","0"]}
-                                if not vals: return styles
-                                mn=min(vals.values())
-                                for i2,col in enumerate(row.index):
-                                    if col in tc and str(row[col]) not in ["","0"] and float(row[col])==mn:
-                                        styles[i2]="background-color:#D1FAE5;font-weight:600;color:#065F46"
-                                    elif col in tc and str(row[col]) not in ["","0"] and float(row[col])>mn:
-                                        styles[i2]="color:#DC2626"
-                                return styles
-                            def fmt_d(v):
-                                if v=="" or v is None: return ""
-                                try: return f"฿{float(v):,.2f}"
-                                except: return ""
-                            fmt={c:"฿{:,.2f}" for c in df.columns if "Total" in str(c) or "Price" in str(c)}
-                            dc2=[c for c in df.columns if "ส่วนลด" in str(c)]
-                            styled=df.style.apply(hi,axis=1).format(fmt)
-                            for dcc in dc2: styled=styled.format(fmt_d,subset=[dcc])
-                            st.dataframe(styled,use_container_width=True,hide_index=True)
+                        rows=[]
+                        for i,it in enumerate(items_data):
+                            qty=float(it["qty"]); row={"#":i+1,"รายการ":it["name"],"จำนวน":int(qty),"หน่วย":it["unit"]}
+                            tv=[]
+                            for s in shops:
+                                price=float(it["prices"].get(s,0)); disc=float(it["item_discounts"].get(s,0))
+                                total=max(price-disc,0)*qty
+                                row[f"{s} Unit Price"]=price
+                                row[f"{s} ส่วนลด(฿)"]=disc if disc>0 else ""
+                                row[f"{s} Total"]=round(total,2); tv.append(total)
+                            vtv=[v for v in tv if v>0]
+                            if vtv: row["ถูกสุด"]=shops[tv.index(min(vtv))]
+                            rows.append(row)
+                        df=pd.DataFrame(rows)
+                        def hi(row):
+                            tc=[c for c in row.index if "Total" in str(c)]
+                            styles=[""]*len(row)
+                            vals={c:float(row[c]) for c in tc if str(row[c]) not in ["","0.0","0"]}
+                            if not vals: return styles
+                            mn=min(vals.values())
+                            for i2,col in enumerate(row.index):
+                                if col in tc and str(row[col]) not in ["","0"] and float(row[col])==mn:
+                                    styles[i2]="background-color:#D1FAE5;font-weight:600;color:#065F46"
+                                elif col in tc and str(row[col]) not in ["","0"] and float(row[col])>mn:
+                                    styles[i2]="color:#DC2626"
+                            return styles
+                        def fmt_d(v):
+                            if v=="" or v is None: return ""
+                            try: return f"฿{float(v):,.2f}"
+                            except: return ""
+                        fmt={c:"฿{:,.2f}" for c in df.columns if "Total" in str(c) or "Price" in str(c)}
+                        dc2=[c for c in df.columns if "ส่วนลด" in str(c)]
+                        styled=df.style.apply(hi,axis=1).format(fmt)
+                        for dcc in dc2: styled=styled.format(fmt_d,subset=[dcc])
+                        st.dataframe(styled,use_container_width=True,hide_index=True)
                         st.markdown("**สรุปยอด**")
                         sr=[("ยอดรวมก่อนส่วนลด",gs,False),("SPECIAL DISCOUNT (-)",gd,True),
                             ("TOTAL (EXC. VAT)",gad,False),(f"VAT {vat:.0f}%",gv,False),("TOTAL (INC. VAT)",gt2,False)]
@@ -437,7 +433,9 @@ if "📋" in menu:
                     TOT="ECFDF5"; TOTT="065F46"; WHT="FFFFFF"
                     TXT="111827"; MUT="6B7280"; BDR="E5E7EB"; HDR="F3F4F6"
                     thin=Side(style="thin",color=BDR)
+                    thin_med=Side(style="medium",color="D1D5DB")
                     bdr=Border(left=thin,right=thin,top=thin,bottom=thin)
+                    bdr_none=Border()
                     def cs(r,c,val="",bold=False,color=TXT,bg=None,align="left",fmt=None,size=10,wrap=False,italic=False):
                         cell=ws.cell(row=r,column=c,value=val)
                         cell.font=Font(bold=bold,color=color,size=size,name="Calibri",italic=italic)
@@ -465,26 +463,40 @@ if "📋" in menu:
                         gs2,gd2,gad2,gv2,gt4=calc_group(items_data,shops,vat,shop_disc)
                         valid2={s:gt4[s] for s in shops if gs2[s]>0}
                         bi=shops.index(min(valid2,key=valid2.get)) if valid2 else None
-                        # หัวกลุ่ม — เส้นเขียวซ้าย + bg เขียวอ่อนมาก
+                        # หัวกลุ่ม
                         ws.merge_cells(start_row=cur,start_column=1,end_row=cur,end_column=TC)
                         g2=ws.cell(row=cur,column=1,value=f"กลุ่ม {gi4+1}  :  {grp['name']}")
                         g2.font=Font(bold=True,size=11,color=GRN,name="Calibri")
                         g2.fill=PatternFill("solid",fgColor="F0FDF4")
                         g2.alignment=Alignment(horizontal="left",vertical="center",indent=1)
-                        g2.border=Border(bottom=Side(style="medium",color=GRN))
+                        g2.border=Border(top=thin_med,bottom=thin_med,left=thin_med,right=thin_med)
                         ws.row_dimensions[cur].height=22; cur+=1
-                        # header
-                        for c2,lbl,w in [(1,"#",5),(2,"รายการ",38),(3,"จำนวน",8),(4,"หน่วย",8)]:
+                        # header row 1: # / รายการ / จำนวน / หน่วย + ชื่อร้าน
+                        for c2,lbl,w in [(1,"Item",5),(2,"Detail",38),(3,"Q'TY",8),(4,"Unit",8)]:
                             ws.merge_cells(start_row=cur,start_column=c2,end_row=cur+1,end_column=c2)
-                            cs(cur,c2,lbl,bold=True,color=TXT,bg=HDR,align="center",size=9)
+                            cell=ws.cell(row=cur,column=c2,value=lbl)
+                            cell.font=Font(bold=True,color=TXT,size=9,name="Calibri")
+                            cell.fill=PatternFill("solid",fgColor=HDR)
+                            cell.alignment=Alignment(horizontal="center",vertical="center")
+                            cell.border=Border(left=thin,right=thin,top=thin,bottom=thin)
                             ws.column_dimensions[get_column_letter(c2)].width=w
                         for si2,shop in enumerate(shops):
                             cu=SS+si2*2; ct=cu+1
                             ib=si2==bi; sh_bg="ECFDF5" if ib else HDR; sh_t=WINS if ib else TXT
+                            # แถว 1: ชื่อร้าน
                             ws.merge_cells(start_row=cur,start_column=cu,end_row=cur,end_column=ct)
-                            cs(cur,cu,("★ " if ib else "")+shop,bold=ib,color=sh_t,bg=sh_bg,align="center",size=9)
-                            cs(cur+1,cu,"Unit Price",color=MUT,bg=HDR,align="center",size=8)
-                            cs(cur+1,ct,"Total",color=MUT,bg=HDR,align="center",size=8)
+                            c_hdr=ws.cell(row=cur,column=cu,value=("★ " if ib else "")+shop)
+                            c_hdr.font=Font(bold=ib,color=sh_t,size=9,name="Calibri")
+                            c_hdr.fill=PatternFill("solid",fgColor=sh_bg)
+                            c_hdr.alignment=Alignment(horizontal="center",vertical="center")
+                            c_hdr.border=Border(left=thin,right=thin,top=thin,bottom=thin)
+                            # แถว 2: Unit Price / Total
+                            for col_off,lbl2 in [(0,"Unit Price"),(1,"Total")]:
+                                c_sub=ws.cell(row=cur+1,column=cu+col_off,value=lbl2)
+                                c_sub.font=Font(color=MUT,size=8,name="Calibri")
+                                c_sub.fill=PatternFill("solid",fgColor=HDR)
+                                c_sub.alignment=Alignment(horizontal="center",vertical="center")
+                                c_sub.border=Border(left=thin,right=thin,top=thin,bottom=thin)
                             ws.column_dimensions[get_column_letter(cu)].width=13
                             ws.column_dimensions[get_column_letter(ct)].width=13
                         ws.row_dimensions[cur].height=20; ws.row_dimensions[cur+1].height=15; cur+=2
@@ -496,7 +508,7 @@ if "📋" in menu:
                             at=[max(rt[si3]-dt[si3],0) for si3 in range(len(shops))]
                             vtv2=[v for v in at if v>0]; bp=min(vtv2) if vtv2 else None
                             cs(cur,1,i2+1,align="center",bg=WHT,size=9,color=MUT)
-                            cs(cur,2,f"[{it.get('category','')}] {it['name']}",align="left",bg=WHT,wrap=True,size=10,bold=True)
+                            cs(cur,2,it['name'],align="left",bg=WHT,wrap=True,size=10,bold=True)
                             cs(cur,3,int(qty),align="center",bg=WHT,size=9)
                             cs(cur,4,it["unit"],align="center",bg=WHT,size=9)
                             for si3,shop in enumerate(shops):
@@ -598,7 +610,7 @@ if "📋" in menu:
                         h1=[p("#",bold=True,align="CENTER"),p("รายการ",bold=True),p("จำนวน",bold=True,align="CENTER"),p("หน่วย",bold=True,align="CENTER")]
                         h2=["","","",""]
                         for si2,s in enumerate(shops):
-                            ib5=s==bs2; sh2="ECFDF5" if ib5 else "F3F4F6"; st5=WINT2 if ib5 else colors.HexColor("#111827")
+                            ib5=s==bs2; sh2="#ECFDF5" if ib5 else "#F3F4F6"; st5=WINT2 if ib5 else colors.HexColor("#111827")
                             h1+=[p(("★ " if ib5 else "")+s,bold=ib5,color=st5,align="CENTER"),""]
                             h2+=[p("Unit Price",size=8,color=MUT2,align="CENTER"),p("Total",size=8,color=MUT2,align="CENTER")]
                             cmds+=[("SPAN",(4+si2*2,1),(5+si2*2,1)),("BACKGROUND",(4+si2*2,1),(5+si2*2,2),colors.HexColor(sh2))]
@@ -613,7 +625,7 @@ if "📋" in menu:
                             at2=[max(rt2[si3]-dt2[si3],0) for si3 in range(len(shops))]
                             vtv3=[v for v in at2 if v>0]; bp2=min(vtv3) if vtv3 else None
                             bg2=WHT2 if i2%2==0 else SUM2
-                            dr=[p(str(i2+1),align="CENTER"),p(f"[{it.get('category','')}] {it['name']}",bold=True),p(str(int(qty)),align="CENTER"),p(it["unit"],align="CENTER")]
+                            dr=[p(str(i2+1),align="CENTER"),p(it['name'],bold=True),p(str(int(qty)),align="CENTER"),p(it["unit"],align="CENTER")]
                             for si3,s in enumerate(shops):
                                 ib6=bp2 and at2[si3]==bp2 and at2[si3]>0
                                 cb4=WIN2 if ib6 else bg2; ct5=WINT2 if ib6 else colors.HexColor("#111827")
