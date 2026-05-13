@@ -624,17 +624,20 @@ if "📋" in menu:
                             cs(current_row,2,f"[{it.get('category','')}] {it['name']}",align="left",bg=bg,wrap=True)
                             cs(current_row,3,int(qty),align="center",bg=bg)
                             cs(current_row,4,it["unit"],align="center",bg=bg)
-                            # คำนวณ total โดยใช้ส่วนลด ฿ ต่อหน่วย
-                            tot_vals=[max(float(it["prices"].get(s,0))-float(it.get("item_discounts",{}).get(s,0)),0)*qty for s in shops]
-                            valid_tv=[v for v in tot_vals if v>0]
+                            # Total = Unit Price × Q'TY (ก่อนหักส่วนลด)
+                            raw_tots=[float(it["prices"].get(s,0))*qty for s in shops]
+                            disc_tots=[float(it.get("item_discounts",{}).get(s,0))*qty for s in shops]
+                            after_tots=[max(raw_tots[si]-disc_tots[si],0) for si in range(len(shops))]
+                            valid_tv=[v for v in after_tots if v>0]
                             best_p=min(valid_tv) if valid_tv else None
                             for si,shop in enumerate(shops):
                                 col_up=SHOP_START+si*2; col_tot=col_up+1
-                                price=float(it["prices"].get(shop,0)); total=tot_vals[si]
-                                is_b=best_p and total==best_p and total>0
+                                price=float(it["prices"].get(shop,0))
+                                raw_total=raw_tots[si]
+                                is_b=best_p and after_tots[si]==best_p and after_tots[si]>0
                                 cell_bg=BEST if is_b else bg
                                 cs(current_row,col_up,price,align="right",bg=cell_bg,fmt='#,##0.00',bold=is_b)
-                                cs(current_row,col_tot,total,align="right",bg=cell_bg,fmt='#,##0.00',bold=is_b)
+                                cs(current_row,col_tot,raw_total,align="right",bg=cell_bg,fmt='#,##0.00',bold=is_b)
                             ws.row_dimensions[current_row].height=20; current_row+=1
 
                             # แถวส่วนลดต่อรายการ (ถ้ามี)
@@ -645,13 +648,11 @@ if "📋" in menu:
                                    bg=AMBER,size=9,color="633806")
                                 for si,shop in enumerate(shops):
                                     col_up=SHOP_START+si*2; col_tot=col_up+1
-                                    disc=float(it.get("item_discounts",{}).get(shop,0))
-                                    disc_total=disc*qty
+                                    disc_total=disc_tots[si]
                                     ws.merge_cells(start_row=current_row,start_column=col_up,
                                                    end_row=current_row,end_column=col_tot)
                                     cs(current_row,col_up,-disc_total if disc_total>0 else "",
-                                       align="right",bg=AMBER,fmt='#,##0.00',size=9,
-                                       color="633806")
+                                       align="right",bg=AMBER,fmt='#,##0.00',size=9,color="633806")
                                 ws.row_dimensions[current_row].height=16; current_row+=1
                         sum_defs=[
                             ("SPECIAL DISCOUNT",grand_disc,AMBER,False,True),
