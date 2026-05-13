@@ -700,51 +700,277 @@ if "📋" in menu:
                     out=io.BytesIO(); wb.save(out); out.seek(0)
                     return out.getvalue()
 
-                st.download_button(
-                    "📊 ดาวน์โหลด Excel (ฟอร์แมตทางการ)",
-                    data=export_excel(),
-                    file_name=f"{st.session_state['doc_title']}_{doc_date.strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
+                # PDF Export
+                def export_pdf():
+                    from reportlab.lib.pagesizes import A4, landscape
+                    from reportlab.lib import colors
+                    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+                    from reportlab.lib.units import mm
+                    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                                     Paragraph, Spacer)
+                    from reportlab.pdfbase import pdfmetrics
+                    from reportlab.pdfbase.ttfonts import TTFont
+                    import urllib.request, os
+
+                    # โหลดฟอนต์ภาษาไทย
+                    font_path = "/tmp/THSarabunNew.ttf"
+                    font_b_path = "/tmp/THSarabunNew-Bold.ttf"
+                    if not os.path.exists(font_path):
+                        urllib.request.urlretrieve(
+                            "https://github.com/google/fonts/raw/main/ofl/sarabun/Sarabun-Regular.ttf",
+                            font_path)
+                    if not os.path.exists(font_b_path):
+                        urllib.request.urlretrieve(
+                            "https://github.com/google/fonts/raw/main/ofl/sarabun/Sarabun-Bold.ttf",
+                            font_b_path)
+                    try:
+                        pdfmetrics.registerFont(TTFont("TH", font_path))
+                        pdfmetrics.registerFont(TTFont("TH-Bold", font_b_path))
+                        FONT      = "TH"
+                        FONT_BOLD = "TH-Bold"
+                    except:
+                        FONT = FONT_BOLD = "Helvetica"
+
+                    buf = io.BytesIO()
+                    doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
+                                            leftMargin=15*mm, rightMargin=15*mm,
+                                            topMargin=15*mm, bottomMargin=15*mm)
+                    story = []
+                    styles = getSampleStyleSheet()
+
+                    def para(txt, bold=False, size=11, color=colors.black, align="LEFT"):
+                        style = ParagraphStyle("p", fontName=FONT_BOLD if bold else FONT,
+                                               fontSize=size, textColor=color,
+                                               alignment={"LEFT":0,"CENTER":1,"RIGHT":2}.get(align,0))
+                        return Paragraph(str(txt), style)
+
+                    # หัวเอกสาร
+                    story.append(para(f"เปรียบเทียบราคา {st.session_state['project_name']}",
+                                      bold=True, size=16, color=colors.HexColor("#1D9E75"), align="CENTER"))
+                    story.append(para(f"วันที่ {doc_date.strftime('%d/%m/%Y')}   VAT {vat:.0f}%   เอกสาร: {st.session_state['doc_title']}",
+                                      size=10, color=colors.grey, align="CENTER"))
+                    story.append(Spacer(1, 8*mm))
+
+                    GREEN  = colors.HexColor("#1D9E75")
+                    BEST_C = colors.HexColor("#BBFFD9")
+                    AMBER_C= colors.HexColor("#FEF9C3")
+                    GRAY_C = colors.HexColor("#F1F5F9")
+                    GL_C   = colors.HexColor("#E1F5EE")
+                    WHITE  = colors.white
+                    shop_clrs = [colors.HexColor(h) for h in
+                                 ["#1D6B9A","#B45309","#166534","#9A3412","#6D28D9"]]
+
+                    for g_idx, grp in enumerate(groups):
+                        items_data = grp.get("items",[])
+                        shop_disc  = grp.get("discounts",{})
+                        if not items_data: continue
+
+                        grand_sub,grand_disc,grand_after_disc,grand_vat,grand_total = calc_group(
+                            items_data, shops, vat, shop_disc)
+                        valid = {s:grand_total[s] for s in shops if grand_sub[s]>0}
+                        best_s = min(valid,key=valid.get) if valid else None
+
+                        # หัวกลุ่ม
+                        story.append(para(f"กลุ่ม {g_idx+1}: {grp['name']}",
+                                          bold=True, size=12, color=WHITE, align="LEFT"))
+
+                        page_w = landscape(A4)[0] - 30*mm
+                        fix_w  = page_w * 0.35
+                        shop_w = (page_w - fix_w) / len(shops)
+                        col_ws = [fix_w*0.08, fix_w*0.42, fix_w*0.12, fix_w*0.12] + \
+                                 [shop_w*0.5, shop_w*0.5] * len(shops)
+
+                        # header row 1: ชื่อร้าน
+                        h1 = [para("Item",bold=True,color=WHITE,align="CENTER"),
+                               para("Detail",bold=True,color=WHITE),
+                               para("Q'TY",bold=True,color=WHITE,align="CENTER"),
+                               para("Unit",bold=True,color=WHITE,align="CENTER")]
+                        for si,s in enumerate(shops):
+                            lbl = ("* " if s==best_s else "") + s
+                            h1 += [para(lbl,bold=True,color=WHITE,align="CENTER"), ""]
+                        # header row 2: Unit Price / Total
+                        h2 = ["","","",""]
+                        for _ in shops:
+                            h2 += [para("Unit Price",bold=True,align="CENTER"),
+                                   para("Total",bold=True,align="CENTER")]
+
+                        tdata = [h1, h2]
+                        span_cmds = [("BACKGROUND",(0,0),(-1,1),GREEN),
+                                     ("SPAN",(0,0),(0,1)),("SPAN",(1,0),(1,1)),
+                                     ("SPAN",(2,0),(2,1)),("SPAN",(3,0),(3,1)),
+                                     ("GRID",(0,0),(-1,-1),0.5,colors.HexColor("#CBD5E1")),
+                                     ("FONTNAME",(0,0),(-1,1),FONT_BOLD),
+                                     ("FONTSIZE",(0,0),(-1,-1),9),
+                                     ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+                                     ("ALIGN",(0,0),(-1,-1),"CENTER")]
+                        for si in range(len(shops)):
+                            col = 4 + si*2
+                            span_cmds.append(("SPAN",(col,0),(col+1,0)))
+                            span_cmds.append(("BACKGROUND",(col,0),(col+1,1),
+                                              shop_clrs[si%len(shop_clrs)]))
+
+                        row_idx = 2
+                        for i, it in enumerate(items_data):
+                            qty = float(it["qty"])
+                            raw_tots = [float(it["prices"].get(s,0))*qty for s in shops]
+                            disc_tots= [float(it.get("item_discounts",{}).get(s,0))*qty for s in shops]
+                            after_tots=[max(raw_tots[si2]-disc_tots[si2],0) for si2 in range(len(shops))]
+                            valid_tv  = [v for v in after_tots if v>0]
+                            best_p    = min(valid_tv) if valid_tv else None
+
+                            bg = WHITE if i%2==0 else colors.HexColor("#F8FAFC")
+                            dr = [para(str(i+1),align="CENTER"),
+                                  para(f"[{it.get('category','')}] {it['name']}"),
+                                  para(str(int(qty)),align="CENTER"),
+                                  para(it["unit"],align="CENTER")]
+                            for si2, s in enumerate(shops):
+                                price = float(it["prices"].get(s,0))
+                                rtot  = raw_tots[si2]
+                                is_b  = best_p and after_tots[si2]==best_p and after_tots[si2]>0
+                                cell_bg = BEST_C if is_b else bg
+                                dr += [para(f"฿{price:,.2f}",align="RIGHT"),
+                                       para(f"฿{rtot:,.2f}",bold=is_b,align="RIGHT")]
+                                span_cmds.append(("BACKGROUND",(4+si2*2,row_idx),(5+si2*2,row_idx),cell_bg))
+                            tdata.append(dr)
+                            span_cmds.append(("BACKGROUND",(0,row_idx),(3,row_idx),bg))
+                            row_idx+=1
+
+                            # แถวส่วนลด
+                            has_disc = any(float(it.get("item_discounts",{}).get(s,0))>0 for s in shops)
+                            if has_disc:
+                                drow = ["","","",para(f"ส่วนลด {it['name']}",
+                                                      size=8,color=colors.HexColor("#633806"),align="RIGHT")]
+                                for si2, s in enumerate(shops):
+                                    dt = disc_tots[si2]
+                                    drow += [para(""),
+                                             para(f"-฿{dt:,.2f}" if dt>0 else "",
+                                                  size=8,color=colors.HexColor("#633806"),align="RIGHT")]
+                                    span_cmds.append(("BACKGROUND",(4+si2*2,row_idx),(5+si2*2,row_idx),AMBER_C))
+                                tdata.append(drow)
+                                span_cmds.append(("BACKGROUND",(0,row_idx),(3,row_idx),AMBER_C))
+                                row_idx+=1
+
+                        # Summary rows
+                        sum_defs_pdf = [
+                            ("SPECIAL DISCOUNT", grand_disc,       AMBER_C, False, True),
+                            ("TOTAL (EXC. VAT)", grand_after_disc, GRAY_C,  True,  False),
+                            (f"VAT {vat:.0f}%",  grand_vat,        GRAY_C,  False, False),
+                            ("TOTAL (INC. VAT)", grand_total,      GL_C,    True,  False),
+                        ]
+                        best_idx_pdf = shops.index(best_s) if best_s else None
+                        for label,vals,sbg,sbold,is_disc in sum_defs_pdf:
+                            srow = ["","","",para(label,bold=sbold,align="RIGHT")]
+                            for si2, s in enumerate(shops):
+                                v = vals.get(s,0)
+                                is_b = label=="TOTAL (INC. VAT)" and si2==best_idx_pdf
+                                cell_bg = BEST_C if is_b else sbg
+                                disp = f"-฿{v:,.2f}" if is_disc else f"฿{v:,.2f}"
+                                srow += [para(""),para(disp,bold=sbold or is_b,align="RIGHT")]
+                                span_cmds.append(("BACKGROUND",(4+si2*2,row_idx),(5+si2*2,row_idx),cell_bg))
+                            tdata.append(srow)
+                            span_cmds.append(("BACKGROUND",(0,row_idx),(3,row_idx),sbg))
+                            span_cmds.append(("SPAN",(0,row_idx),(3,row_idx)))
+                            for si2 in range(len(shops)):
+                                span_cmds.append(("SPAN",(4+si2*2,row_idx),(5+si2*2,row_idx)))
+                            row_idx+=1
+
+                        t = Table(tdata, colWidths=col_ws, repeatRows=2)
+                        t.setStyle(TableStyle(span_cmds))
+                        story.append(t)
+                        story.append(Spacer(1,8*mm))
+
+                    # ===== ผนวกไฟล์แนบ (รูปภาพ) =====
+                    attachments = st.session_state.get("project_attachments",{})
+                    if attachments:
+                        from reportlab.platypus import PageBreak
+                        from reportlab.platypus import Image as RLImage
+                        story.append(PageBreak())
+                        story.append(para("ใบเสนอราคาแนบท้าย",bold=True,size=14,
+                                          color=GREEN,align="CENTER"))
+                        story.append(Spacer(1,5*mm))
+                        for shop_name, file_data in attachments.items():
+                            if file_data.get("type","") in ["image/jpeg","image/png","image/jpg"]:
+                                story.append(para(f"ร้าน: {shop_name}",bold=True,size=11))
+                                story.append(Spacer(1,3*mm))
+                                img_buf = io.BytesIO(file_data["bytes"])
+                                img = RLImage(img_buf,
+                                              width=landscape(A4)[0]-30*mm,
+                                              height=(landscape(A4)[0]-30*mm)*0.7,
+                                              kind="bound")
+                                story.append(img)
+                                story.append(Spacer(1,5*mm))
+
+                    doc.build(story)
+                    buf.seek(0)
+                    return buf.getvalue()
+
+                col_xl, col_pdf = st.columns(2)
+                with col_xl:
+                    st.download_button(
+                        "📊 ดาวน์โหลด Excel",
+                        data=export_excel(),
+                        file_name=f"{st.session_state['doc_title']}_{doc_date.strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                with col_pdf:
+                    try:
+                        pdf_bytes = export_pdf()
+                        st.download_button(
+                            "📄 ดาวน์โหลด PDF (พร้อมไฟล์แนบ)",
+                            data=pdf_bytes,
+                            file_name=f"{st.session_state['doc_title']}_{doc_date.strftime('%Y%m%d')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                    except Exception as e:
+                        st.error(f"สร้าง PDF ไม่สำเร็จ: {e}")
 
         # ===== TAB 3: ไฟล์แนบ =====
         with tab3:
             st.markdown("### 📎 แนบไฟล์ใบเสนอราคา")
-            st.caption("อัปโหลดไฟล์ใบเสนอราคาของแต่ละร้าน ไฟล์จะเก็บใน Google Drive")
-            if not any(g.get("items") for g in st.session_state["groups"]):
-                st.info("กรอกข้อมูลโครงการก่อนแล้วค่อยแนบไฟล์ครับ")
-            else:
-                for g_idx,grp in enumerate(st.session_state["groups"]):
-                    if not grp.get("items"): continue
-                    st.markdown(f"**กลุ่ม {g_idx+1}: {grp['name']}**")
-                    for idx,it in enumerate(grp["items"]):
-                        if "file_links" not in it: it["file_links"] = {}
-                        with st.expander(f"{it['name']}", expanded=False):
-                            fcols = st.columns(len(shops))
-                            for si,s in enumerate(shops):
-                                with fcols[si]:
-                                    st.markdown(f"**{s}**")
-                                    existing_link = it["file_links"].get(s,"")
-                                    if existing_link:
-                                        st.markdown(f"[ดูไฟล์ที่แนบ]({existing_link})")
-                                    uploaded_file = st.file_uploader(
-                                        "อัปโหลดไฟล์", type=["pdf","png","jpg","jpeg"],
-                                        key=f"file_{g_idx}_{idx}_{si}")
-                                    if uploaded_file:
-                                        with st.spinner("กำลังอัปโหลด..."):
-                                            link = upload_to_drive(
-                                                uploaded_file.read(),
-                                                f"{it['name']}_{s}_{uploaded_file.name}",
-                                                uploaded_file.type
-                                            )
-                                        if link:
-                                            it["file_links"][s] = link
-                                            st.success("อัปโหลดสำเร็จ!")
-                                            st.markdown(f"[ดูไฟล์]({link})")
-                                        else:
-                                            st.error("อัปโหลดไม่สำเร็จ")
-                    st.divider()
+            st.caption("แนบใบเสนอราคาต้นฉบับของแต่ละร้าน ไฟล์รูปภาพจะถูกรวมใน PDF ด้วย")
+
+            if "project_attachments" not in st.session_state:
+                st.session_state["project_attachments"] = {}
+
+            fcols = st.columns(len(shops))
+            for si, s in enumerate(shops):
+                with fcols[si]:
+                    st.markdown(f"**{s}**")
+                    att = st.session_state["project_attachments"].get(s,{})
+                    if att:
+                        st.success(f"✅ {att.get('name','')}")
+                        if att.get("drive_link"):
+                            st.markdown(f"[ดูไฟล์ใน Drive]({att['drive_link']})")
+                        if st.button(f"ลบไฟล์", key=f"del_att_{si}"):
+                            del st.session_state["project_attachments"][s]
+                            st.rerun()
+
+                    uploaded_file = st.file_uploader(
+                        "อัปโหลดใบเสนอราคา",
+                        type=["pdf","png","jpg","jpeg"],
+                        key=f"att_{si}"
+                    )
+                    if uploaded_file:
+                        file_bytes = uploaded_file.read()
+                        with st.spinner("กำลังอัปโหลดไปยัง Drive..."):
+                            link = upload_to_drive(
+                                file_bytes,
+                                f"{st.session_state['doc_title']}_{s}_{uploaded_file.name}",
+                                uploaded_file.type
+                            )
+                        st.session_state["project_attachments"][s] = {
+                            "name":       uploaded_file.name,
+                            "type":       uploaded_file.type,
+                            "bytes":      file_bytes,
+                            "drive_link": link or ""
+                        }
+                        st.success("อัปโหลดสำเร็จ!")
+                        st.rerun()
+
+            st.divider()
+            st.caption("หมายเหตุ: ไฟล์รูปภาพ (JPG/PNG) จะถูกรวมต่อท้ายใน PDF อัตโนมัติ ส่วนไฟล์ PDF ดูได้ผ่านลิงก์ Drive")
 
 # ============================================================
 # MENU: ฐานข้อมูลร้านค้า
