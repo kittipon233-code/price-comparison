@@ -222,14 +222,20 @@ if "📋" in menu:
                     st.rerun()
 
             new_shops = []
+            del_shop_idx = None
             for i,s in enumerate(st.session_state["shops"]):
-                new_shops.append(st.text_input(f"ร้านที่ {i+1}", s, key=f"shop_{i}"))
+                col_input, col_del = st.columns([4, 0.7])
+                new_name = col_input.text_input(f"ร้านที่ {i+1}", s, key=f"shop_{i}")
+                new_shops.append(new_name)
+                if len(st.session_state["shops"]) > 2:
+                    if col_del.button("🗑", key=f"del_shop_{i}"):
+                        del_shop_idx = i
             st.session_state["shops"] = new_shops
-            c1s,c2s = st.columns(2)
-            if c1s.button("➕ เพิ่มร้าน"):
+            if del_shop_idx is not None:
+                st.session_state["shops"].pop(del_shop_idx)
+                st.rerun()
+            if st.button("➕ เพิ่มร้านค้า"):
                 st.session_state["shops"].append(f"บริษัท {chr(65+len(st.session_state['shops']))}"); st.rerun()
-            if c2s.button("➖ ลบร้าน") and len(st.session_state["shops"]) > 2:
-                st.session_state["shops"].pop(); st.rerun()
 
             st.divider()
             st.subheader("🎁 Special Discount (฿)")
