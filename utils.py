@@ -61,14 +61,38 @@ def save_project(data, created_by, project_id=None):
         data.get("status", "กำลังดำเนินการ"),
         created_by, now, now
     ]
+def _safe_records_projects(ws):
+    try:
+        return ws.get_all_records()
+    except Exception:
+        all_values = ws.get_all_values()
+        if not all_values or all_values[0][0] != "id":
+            ws.update("A1:M1", [["id","title","project_name","date","vat_rate",
+                                  "shops","shop_discounts","groups","tags","status",
+                                  "created_by","created_at","updated_at"]])
+        return []
+
+def save_project(data, created_by, project_id=None):
+    ws  = get_ws("projects")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    row = [
+        project_id or "",
+        data["title"], data["project_name"], data["date"], data["vat_rate"],
+        json.dumps(data["shops"],          ensure_ascii=False),
+        json.dumps(data["shop_discounts"], ensure_ascii=False),
+        json.dumps(data["groups"],         ensure_ascii=False),
+        json.dumps(data.get("tags", []),   ensure_ascii=False),
+        data.get("status", "กำลังดำเนินการ"),
+        created_by, now, now
+    ]
     if project_id:
-        records = ws.get_all_records()
+        records = _safe_records_projects(ws)
         for i, r in enumerate(records):
             if str(r.get("id")) == str(project_id):
-                row[11] = r.get("created_at", now)  # keep original created_at
+                row[11] = r.get("created_at", now)
                 ws.update(f"A{i+2}:M{i+2}", [row])
                 return project_id
-    records = ws.get_all_records()
+    records = _safe_records_projects(ws)
     new_id  = len(records) + 1
     row[0]  = new_id
     ws.append_row(row)
@@ -76,7 +100,7 @@ def save_project(data, created_by, project_id=None):
 
 def delete_project(project_id):
     ws = get_ws("projects")
-    for i, r in enumerate(ws.get_all_records()):
+    for i, r in enumerate(_safe_records_projects(ws)):
         if str(r.get("id")) == str(project_id):
             ws.delete_rows(i + 2)
             return True
@@ -84,7 +108,7 @@ def delete_project(project_id):
 
 def duplicate_project(project_id, created_by):
     ws = get_ws("projects")
-    records = ws.get_all_records()
+    records = _safe_records_projects(ws)
     for r in records:
         if str(r.get("id")) == str(project_id):
             shops, shop_discounts, groups = parse_project(r)

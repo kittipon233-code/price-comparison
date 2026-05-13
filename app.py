@@ -221,21 +221,33 @@ if "📋" in menu:
                             st.session_state["shops"].append(sn)
                     st.rerun()
 
+            if "del_shop_idx" not in st.session_state:
+                st.session_state["del_shop_idx"] = None
+
             new_shops = []
-            del_shop_idx = None
-            for i,s in enumerate(st.session_state["shops"]):
+            for i, s in enumerate(st.session_state["shops"]):
                 col_input, col_del = st.columns([4, 0.7])
                 new_name = col_input.text_input(f"ร้านที่ {i+1}", s, key=f"shop_{i}")
                 new_shops.append(new_name)
                 if len(st.session_state["shops"]) > 2:
-                    if col_del.button("🗑", key=f"del_shop_{i}"):
-                        del_shop_idx = i
+                    if col_del.button("🗑", key=f"del_shop_btn_{i}",
+                                      help=f"ลบ {s}"):
+                        st.session_state["del_shop_idx"] = i
+
+            # บันทึกชื่อที่แก้ไขก่อน แล้วค่อยลบ
             st.session_state["shops"] = new_shops
-            if del_shop_idx is not None:
-                st.session_state["shops"].pop(del_shop_idx)
+
+            if st.session_state["del_shop_idx"] is not None:
+                idx_to_del = st.session_state["del_shop_idx"]
+                if 0 <= idx_to_del < len(st.session_state["shops"]):
+                    st.session_state["shops"].pop(idx_to_del)
+                st.session_state["del_shop_idx"] = None
                 st.rerun()
+
             if st.button("➕ เพิ่มร้านค้า"):
-                st.session_state["shops"].append(f"บริษัท {chr(65+len(st.session_state['shops']))}"); st.rerun()
+                st.session_state["shops"].append(
+                    f"บริษัท {chr(65+len(st.session_state['shops']))}")
+                st.rerun()
 
             st.divider()
             st.subheader("🎁 Special Discount (฿)")
